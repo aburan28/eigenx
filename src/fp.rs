@@ -74,16 +74,96 @@ const fn double_mod<const N: usize>(a: &[u64; N], p: &[u64; N]) -> [u64; N] {
     r
 }
 
-/// 2^(64 N k) mod p.
-pub const fn r_pow_mod_p<const N: usize>(p: &[u64; N], k: usize) -> [u64; N] {
-    let mut r = [0u64; N];
-    r[0] = 1;
+/// Montgomery product a·b·2^(-64N) mod p (CIOS), inputs < p, output < p.
+/// `pinv` = -p^{-1} mod 2^64.  Compile-time only; the runtime multiplier
+/// lives on `Fp`.
+const fn mont_mul_const<const N: usize>(
+    a: &[u64; N],
+    b: &[u64; N],
+    p: &[u64; N],
+    pinv: u64,
+) -> [u64; N] {
+    let mut t = [0u64; N];
+    let mut t_hi: u64 = 0;
     let mut i = 0;
-    while i < 64 * N * k {
+    while i < N {
+        // t += a * b[i]
+        let mut carry: u64 = 0;
+        let mut j = 0;
+        while j < N {
+            let v = (t[j] as u128) + (a[j] as u128) * (b[i] as u128) + (carry as u128);
+            t[j] = v as u64;
+            carry = (v >> 64) as u64;
+            j += 1;
+        }
+        let v = (t_hi as u128) + (carry as u128);
+        t_hi = v as u64;
+        let t_hi2 = (v >> 64) as u64;
+        // t = (t + m p) / 2^64
+        let m = t[0].wrapping_mul(pinv);
+        let v = (t[0] as u128) + (m as u128) * (p[0] as u128);
+        let mut carry = (v >> 64) as u64;
+        j = 1;
+        while j < N {
+            let v = (t[j] as u128) + (m as u128) * (p[j] as u128) + (carry as u128);
+            t[j - 1] = v as u64;
+            carry = (v >> 64) as u64;
+            j += 1;
+        }
+        let v = (t_hi as u128) + (carry as u128);
+        t[N - 1] = v as u64;
+        t_hi = t_hi2 + ((v >> 64) as u64);
+        i += 1;
+    }
+    if t_hi != 0 || geq(&t, p) {
+        t = sub_const(&t, p);
+    }
+    t
+}
+
+/// 2^(64 N k) mod p for k in {1, 2, 3}.
+///
+/// R = 2^(64N) mod p is obtained as 2^B - p (B = bit length of p) followed by
+/// 64N - B modular doublings; R^2 is the Montgomery form of 2^(64N), built by
+/// square-and-multiply from the Montgomery form of 2; R^3 = mont(R^2, R^2).
+/// This keeps the const-evaluation cost at O(N^2 log N) limb operations, so
+/// even the 82-limb Q5 prime stays far below rustc's long-running-const-eval
+/// threshold (the naive 64·N·k doublings did not).
+pub const fn r_pow_mod_p<const N: usize>(p: &[u64; N], k: usize) -> [u64; N] {
+    let pinv = mont_pinv(p[0]);
+    let b = bit_length(p);
+    let zero = [0u64; N];
+    let mut r = if b == 64 * N {
+        // 2^(64N) - p, which is < p because p >= 2^(64N-1).
+        sub_const(&zero, p)
+    } else {
+        let mut t = [0u64; N];
+        t[b / 64] = 1u64 << (b % 64);
+        sub_const(&t, p)
+    };
+    let mut i = b;
+    while i < 64 * N {
         r = double_mod(&r, p);
         i += 1;
     }
-    r
+    if k == 1 {
+        return r;
+    }
+    // acc = Montgomery form of 2^e, e running over the bits of 64N.
+    let mut two = double_mod(&r, p);
+    let mut acc = r;
+    let mut e = 64 * N;
+    while e > 0 {
+        if e & 1 == 1 {
+            acc = mont_mul_const(&acc, &two, p, pinv);
+        }
+        two = mont_mul_const(&two, &two, p, pinv);
+        e >>= 1;
+    }
+    if k == 2 {
+        return acc;
+    }
+    mont_mul_const(&acc, &acc, p, pinv)
 }
 
 /// a - small (a > small).
@@ -637,4 +717,54 @@ macro_rules! hexlimbs {
     ($s:expr, $n:expr) => {
         $crate::fp::hex_to_limbs::<$n>($s)
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::params::*;
+    use num_bigint::BigUint;
+
+    fn limbs_to_big<const N: usize>(l: &[u64; N]) -> BigUint {
+        let mut bytes = Vec::with_capacity(8 * N);
+        for w in l {
+            bytes.extend_from_slice(&w.to_le_bytes());
+        }
+        BigUint::from_bytes_le(&bytes)
+    }
+
+    fn check<C: FpConfig<N>, const N: usize>() {
+        let p = limbs_to_big(&C::MODULUS);
+        let r = BigUint::from(1u8) << (64 * N);
+        for (k, got) in [(1u32, C::R), (2, C::R2), (3, C::R3)] {
+            let want = r.modpow(&BigUint::from(k), &p);
+            assert_eq!(limbs_to_big(&got), want, "{} R^{k}", C::NAME);
+        }
+    }
+
+    #[test]
+    fn montgomery_constants_match_bigint() {
+        check::<Toy16Fp, 4>();
+        check::<Toy32Fp, 6>();
+        check::<L1Fp, 21>();
+        check::<L3Fp, 32>();
+        check::<L5Fp, 42>();
+        check::<Q3Fp, 61>();
+        check::<Q5Fp, 82>();
+    }
+
+    #[test]
+    fn full_width_modulus() {
+        // A 256-bit prime occupying all four limbs exercises the B == 64N path.
+        #[derive(Clone, Copy, Debug)]
+        struct P256;
+        impl FpConfig<4> for P256 {
+            const MODULUS: [u64; 4] = crate::hexlimbs!(
+                "ffffffff00000001000000000000000000000000ffffffffffffffffffffffff",
+                4
+            );
+            const NAME: &'static str = "p256";
+        }
+        check::<P256, 4>();
+    }
 }

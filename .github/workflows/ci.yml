@@ -27,11 +27,27 @@ jobs:
         run: cargo fmt --check
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
-      - name: Release tests including Toy16
+      - name: Release tests (KEM, KATs, robustness, CLI, toy cryptanalysis, cost model)
         run: cargo test --release
       - name: Ignored Toy32 round trip
         run: cargo test --release -- --ignored
+      - name: Attack cost table
+        run: cargo run --release --example security_estimate
       - name: L1 full-size KEM round trip
         run: cargo run --release --example run -- L1 1
       - name: L1 authenticated PKE round trip
         run: cargo run --release --example pke_run -- L1
+      - name: L1 CLI round trip (keygen, encaps, decaps, encrypt, decrypt)
+        run: |
+          cargo build --release --bin eigenx
+          B=target/release/eigenx
+          $B params
+          $B keygen --set L1 --pk pk --sk sk
+          $B encaps --pk pk --ct ct --key k1
+          $B decaps --sk sk --ct ct --key k2
+          cmp k1 k2
+          echo "eigenx ci" > msg
+          $B encrypt --pk pk --in msg --out msg.enc --aad ci
+          $B decrypt --sk sk --in msg.enc --out msg.dec --aad ci
+          cmp msg msg.dec
+          $B info msg.enc

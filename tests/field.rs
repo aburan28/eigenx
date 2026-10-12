@@ -40,6 +40,9 @@ macro_rules! field_test {
             const MODULUS: [u64; $n] = eigen_seta::hexlimbs!($hex, $n);
             const NAME: &'static str = stringify!($cfg);
         }
+        field_test!(@body $name, $cfg, $n, 200);
+    };
+    (@body $name:ident, $cfg:ty, $n:expr, $iters:expr) => {
         #[test]
         fn $name() {
             type F = Fp<$cfg, $n>;
@@ -54,7 +57,7 @@ macro_rules! field_test {
                 }
                 to_big(&l) % &p
             };
-            for _ in 0..200 {
+            for _ in 0..$iters {
                 let a = rand_big(&mut rng);
                 let b = rand_big(&mut rng);
                 let fa = F::from_canonical_limbs(from_big(&a));
@@ -121,3 +124,6 @@ field_test!(f2, P127, 2, "7fffffffffffffffffffffffffffffff");
 field_test!(f3, P521ish, 9, "1ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
 field_test!(fl1, PL1, 21, "1e90dd6696c7cb6ab11dd31b2fc8b8c51a85a0269c88a697887798072b7f6ec1a1ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
 field_test!(fl5, PL5, 42, "223e047a381431b6bd283938b1136820f011153efd3d97b1741eb046d717d8f9ab92388d45960d699e8a5bc8d98a394926f07f3ec962f520fbe604caa2bbe4afa1dfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+// The quantum-hardened Q5 prime (82 limbs) through the real parameter
+// config: exercises the 86-limb safegcd path and the compile-time constants.
+field_test!(@body fq5, eigen_seta::params::Q5Fp, 82, 12);

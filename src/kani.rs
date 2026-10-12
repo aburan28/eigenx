@@ -387,6 +387,26 @@ fn kernel_quadratics<F: Field>(h: &[F; 7], d1: &Div<F>, d2: &Div<F>) -> ([F; 3],
     (g1, g2, g3)
 }
 
+/// Determinant of the kernel quadratics (g1, g2, g3) of a (2,2)-step on
+/// Jac(H) with kernel <d1, d2>.  Zero exactly when the codomain is a product
+/// of elliptic curves (a splitting step) rather than a Jacobian (a Richelot
+/// step).  Variable time; used by the cryptanalysis chain inspector.
+pub fn kernel_determinant<F: Field>(h: &[F; 7], d1: &Div<F>, d2: &Div<F>) -> F {
+    let (g1, g2, g3) = kernel_quadratics(h, d1, d2);
+    let m = [g1, g2, g3];
+    let c = |i: usize, j: usize| {
+        let r: Vec<usize> = (0..3).filter(|&x| x != i).collect();
+        let k: Vec<usize> = (0..3).filter(|&x| x != j).collect();
+        let v = m[r[0]][k[0]] * m[r[1]][k[1]] - m[r[0]][k[1]] * m[r[1]][k[0]];
+        if (i + j).is_multiple_of(2) {
+            v
+        } else {
+            -v
+        }
+    };
+    m[0][0] * c(0, 0) + m[0][1] * c(0, 1) + m[0][2] * c(0, 2)
+}
+
 impl<F: Field> Richelot<F> {
     /// `d1`, `d2`: the kernel's two generators (order 2).
     pub fn new(h: &[F; 7], d1: &Div<F>, d2: &Div<F>) -> Self {

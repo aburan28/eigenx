@@ -3,7 +3,7 @@
 use crate::params::ParamSet;
 use crate::fp::FpConfig;
 
-// Toy16: lambda = 16, p has 216 bits (4 limbs), e = 174, f3 = 21 (d ~ 2^33.3), c = 158, kappa = 8
+// Toy16: lambda = 16, p has 216 bits (4 limbs), e = 174, f3 = 21 (d ~ 2^33.3, d >= 2^(2 lambda)), c = 158, kappa = 8
 #[derive(Clone, Copy, Debug)]
 pub struct Toy16Fp;
 impl FpConfig<4> for Toy16Fp {
@@ -24,7 +24,8 @@ impl ParamSet<4> for Toy16 {
     const ED_A4_HEX: &'static str = "c0675d853cfffffffffffffffffffffffffffffffffffffceb9c5c";
     const ED_A6_HEX: &'static str = "28ecf4141e";
 }
-// Toy32: lambda = 32, p has 369 bits (6 limbs), e = 297, f3 = 41 (d ~ 2^65.0), c = 55, kappa = 8
+
+// Toy32: lambda = 32, p has 369 bits (6 limbs), e = 297, f3 = 41 (d ~ 2^65.0, d >= 2^(2 lambda)), c = 55, kappa = 8
 #[derive(Clone, Copy, Debug)]
 pub struct Toy32Fp;
 impl FpConfig<6> for Toy32Fp {
@@ -45,7 +46,8 @@ impl ParamSet<6> for Toy32 {
     const ED_A4_HEX: &'static str = "1b2fc30e3d206427513fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffceb9c5c";
     const ED_A6_HEX: &'static str = "28ecf4141e";
 }
-// L1: lambda = 128, p has 1341 bits (21 limbs), e = 1076, f3 = 162 (d ~ 2^256.8), c = 144, kappa = 12
+
+// L1: lambda = 128, p has 1341 bits (21 limbs), e = 1076, f3 = 162 (d ~ 2^256.8, d >= 2^(2 lambda)), c = 144, kappa = 12
 #[derive(Clone, Copy, Debug)]
 pub struct L1Fp;
 impl FpConfig<21> for L1Fp {
@@ -67,7 +69,7 @@ impl ParamSet<21> for L1 {
     const ED_A6_HEX: &'static str = "28ecf4141e";
 }
 
-// L3: lambda = 192, p has 1991 bits (32 limbs), e = 1594, f3 = 243 (d ~ 2^385.1), c = 1059, kappa = 12
+// L3: lambda = 192, p has 1991 bits (32 limbs), e = 1594, f3 = 243 (d ~ 2^385.1, d >= 2^(2 lambda)), c = 1059, kappa = 12
 #[derive(Clone, Copy, Debug)]
 pub struct L3Fp;
 impl FpConfig<32> for L3Fp {
@@ -89,7 +91,7 @@ impl ParamSet<32> for L3 {
     const ED_A6_HEX: &'static str = "28ecf4141e";
 }
 
-// L5: lambda = 256, p has 2630 bits (42 limbs), e = 2106, f3 = 324 (d ~ 2^513.5), c = 380, kappa = 12
+// L5: lambda = 256, p has 2630 bits (42 limbs), e = 2106, f3 = 324 (d ~ 2^513.5, d >= 2^(2 lambda)), c = 380, kappa = 12
 #[derive(Clone, Copy, Debug)]
 pub struct L5Fp;
 impl FpConfig<42> for L5Fp {
@@ -110,3 +112,48 @@ impl ParamSet<42> for L5 {
     const ED_A4_HEX: &'static str = "223e047a381431b6bd283938b1136820f011153efd3d97b1741eb046d717d8f9ab92388d45960d699e8a5bc8d98a394926f07f3ec962f520fbe604caa2bbe4afa1dffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffceb9c5c";
     const ED_A6_HEX: &'static str = "28ecf4141e";
 }
+
+// Q3: lambda = 192, p has 3904 bits (61 limbs), e = 3125, f3 = 485 (d ~ 2^768.7, d >= 2^(4 lambda)), c = 371, kappa = 12
+#[derive(Clone, Copy, Debug)]
+pub struct Q3Fp;
+impl FpConfig<61> for Q3Fp {
+    const MODULUS: [u64; 61] = crate::hexlimbs!("9762d292b0cfe5abc34fd5dee21ce4bcd6f0391e56b53ec9ba72aa3bd320f295d2f58e109700e7bdd7a26638a3d36ec13b84db3eb805a04f223fcc78a4f4586f9d78e1b3a17aa2949fe79cbecdbbaec3bfd5127ee8b7cca6cadb1f55cbe98bf16a3fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 61);
+    const NAME: &'static str = "Q3";
+}
+#[derive(Clone, Copy, Debug)]
+pub struct Q3;
+impl ParamSet<61> for Q3 {
+    const NAME: &'static str = "Q3";
+    const LAMBDA: usize = 192;
+    type Cfg = Q3Fp;
+    const E: usize = 3125;
+    const F3: usize = 485;
+    const KAPPA: usize = 12;
+    const COFACTOR: u64 = 371;
+    const F_LO_HEX: &'static str = "4bb169495867f2d5e1a7eaef710e725e6b781c8f2b5a9f64dd39551de990794ae97ac7084b8073deebd1331c51e9b7609dc26d9f5c02d027911fe63c527a2c37cebc70d9d0bd514a4ff3ce5f66ddd761dfea893f745be653656d8faae5f4c5f8b51001";
+    const ED_A4_HEX: &'static str = "9762d292b0cfe5abc34fd5dee21ce4bcd6f0391e56b53ec9ba72aa3bd320f295d2f58e109700e7bdd7a26638a3d36ec13b84db3eb805a04f223fcc78a4f4586f9d78e1b3a17aa2949fe79cbecdbbaec3bfd5127ee8b7cca6cadb1f55cbe98bf16a3ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffceb9c5c";
+    const ED_A6_HEX: &'static str = "28ecf4141e";
+}
+
+// Q5: lambda = 256, p has 5192 bits (82 limbs), e = 4155, f3 = 647 (d ~ 2^1025.5, d >= 2^(4 lambda)), c = 975, kappa = 12
+#[derive(Clone, Copy, Debug)]
+pub struct Q5Fp;
+impl FpConfig<82> for Q5Fp {
+    const MODULUS: [u64; 82] = crate::hexlimbs!("a8e586ce5196f5cda0ebdf2b3e01bbb2c70adb9905996b249d0cc867ff6d22927db290bb15deb15b01c2f456a0e671e103b95ec613d01cb27993b5606b5349d9c7a29a800bb5493f0d09d4f324d74f14d93c6b3c92e429408c24a323b7db4ebe2221ed113d76a1c22ce57ff32f8efcd5883e04b7e14be7263ee16d7a15e21e13364fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 82);
+    const NAME: &'static str = "Q5";
+}
+#[derive(Clone, Copy, Debug)]
+pub struct Q5;
+impl ParamSet<82> for Q5 {
+    const NAME: &'static str = "Q5";
+    const LAMBDA: usize = 256;
+    type Cfg = Q5Fp;
+    const E: usize = 4155;
+    const F3: usize = 647;
+    const KAPPA: usize = 12;
+    const COFACTOR: u64 = 975;
+    const F_LO_HEX: &'static str = "151cb0d9ca32deb9b41d7be567c0377658e15b7320b32d6493a1990cffeda4524fb6521762bbd62b60385e8ad41cce3c20772bd8c27a03964f3276ac0d6a693b38f453500176a927e1a13a9e649ae9e29b278d67925c85281184946476fb69d7c4443da227aed438459caffe65f1df9ab107c096fc297ce4c7dc2daf42bc43c266c9001";
+    const ED_A4_HEX: &'static str = "a8e586ce5196f5cda0ebdf2b3e01bbb2c70adb9905996b249d0cc867ff6d22927db290bb15deb15b01c2f456a0e671e103b95ec613d01cb27993b5606b5349d9c7a29a800bb5493f0d09d4f324d74f14d93c6b3c92e429408c24a323b7db4ebe2221ed113d76a1c22ce57ff32f8efcd5883e04b7e14be7263ee16d7a15e21e13364ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffceb9c5c";
+    const ED_A6_HEX: &'static str = "28ecf4141e";
+}
+

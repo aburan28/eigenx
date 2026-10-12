@@ -163,6 +163,94 @@ pub fn decaps_chain<F: Field>(
     (e5, out)
 }
 
+/// What a variable-time walk of the decapsulation schedule observed.  Used
+/// by the cryptanalysis module to test whether a wrong key "fails early"
+/// (which would localise the secret) or only at the end.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChainReport {
+    /// The product step found exactly one kernel generator on each factor,
+    /// as the honest schedule assumes.
+    pub prodker_ok: bool,
+    /// The gluing step received four finite 2-torsion points with no graph
+    /// structure, as the honest schedule assumes.
+    pub glue_ok: bool,
+    /// First Richelot step (0-based, of `e - 6`) whose kernel determinant
+    /// vanished, i.e. an unscheduled splitting.  `None` if none did.
+    pub first_zero_delta_step: Option<usize>,
+    /// Number of Richelot steps actually walked.
+    pub richelot_steps: usize,
+    /// The scheduled splitting step had a vanishing determinant.
+    pub final_split: bool,
+}
+
+/// Walk the decapsulation schedule in variable time with structural checks
+/// at every step (see `ChainReport`).  Doublings are done naively, so the
+/// cost is quadratic in `e`; this is analysis code, not the KEM.
+pub fn inspect_chain<F: Field>(
+    ec: &WCurve<F>,
+    k1: &Pair<F>,
+    k2: &Pair<F>,
+    e: usize,
+) -> ChainReport {
+    use crate::kani::kernel_determinant;
+    assert!(e >= 8);
+    let fin = |p: &WPoint<F>| !bool::from(p.inf);
+    let mut k1 = graph_identity(ec, k1);
+    let mut k2 = graph_identity(ec, k2);
+    // product step
+    let a1 = ec.dbl_iter(&k1.0, e - 2);
+    let a2 = ec.dbl_iter(&k2.0, e - 2);
+    let b1 = ec.dbl_iter(&k1.1, e - 2);
+    let b2 = ec.dbl_iter(&k2.1, e - 2);
+    let prodker_ok = (fin(&a1) ^ fin(&a2)) && (fin(&b1) ^ fin(&b2));
+    let f = prodker_step(ec, ec, &k1, &k2, e - 2);
+    k1 = map_pair(&f, &k1);
+    k2 = map_pair(&f, &k2);
+    let (c1, c2) = (f.0.codomain, f.1.codomain);
+    // gluing step
+    let a1 = c1.dbl_iter(&k1.0, e - 3);
+    let a2 = c1.dbl_iter(&k2.0, e - 3);
+    let b1 = c2.dbl_iter(&k1.1, e - 3);
+    let b2 = c2.dbl_iter(&k2.1, e - 3);
+    let glue_ok = fin(&a1)
+        && fin(&a2)
+        && fin(&b1)
+        && fin(&b2)
+        && !(bool::from(a1.x.ct_eq(&b1.x)) && bool::from(a2.x.ct_eq(&b2.x)));
+    let mut report = ChainReport {
+        prodker_ok,
+        glue_ok,
+        first_zero_delta_step: None,
+        richelot_steps: 0,
+        final_split: false,
+    };
+    if !glue_ok {
+        return report;
+    }
+    let g = Glue::new(two_torsion_xs(&c1, &a1, &a2), two_torsion_xs(&c2, &b1, &b2));
+    let mut gens = [g.map(&k1.0, &k1.1), g.map(&k2.0, &k2.1)];
+    let mut h = g.h;
+    let order_log = e - 3; // order of gens on the Jacobian
+    let r = e - 6;
+    for i in 0..r {
+        let lv = div_dbl_iter_batch(&h, &gens, order_log - 1 - i);
+        let delta = kernel_determinant(&h, &lv[0], &lv[1]);
+        if bool::from(delta.is_zero()) {
+            report.first_zero_delta_step = Some(i);
+            return report;
+        }
+        let phi = Richelot::new(&h, &lv[0], &lv[1]);
+        let m = phi.map_batch(&gens);
+        gens = [m[0], m[1]];
+        h = phi.hnew;
+        report.richelot_steps = i + 1;
+    }
+    let l0 = div_dbl_iter(&h, &gens[0], 2);
+    let l1 = div_dbl_iter(&h, &gens[1], 2);
+    report.final_split = bool::from(kernel_determinant(&h, &l0, &l1).is_zero());
+    report
+}
+
 /// Key-generation chain (variable time is acceptable here): schedule
 /// glue, rich x (e-2), split, starting from E x E with kernel <K1, K2> of
 /// order 2^e.  Returns the two codomain curves and the payload images.

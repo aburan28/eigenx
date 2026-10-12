@@ -14,7 +14,9 @@
 
 pub mod chain;
 pub mod cm;
+pub mod cryptanalysis;
 pub mod ct;
+pub mod drbg;
 pub mod field;
 pub mod fp;
 pub mod fp2;
@@ -28,5 +30,8 @@ pub mod params;
 pub mod pke;
 pub mod safegcd;
 pub mod scalar;
+pub mod security;
+pub mod sets;
 pub mod strategy;
 pub mod weier;
+pub mod wire;

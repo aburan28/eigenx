@@ -1,4 +1,4 @@
-//! cargo run --release --example run -- <Toy16|Toy32|L1|L3|L5> [trials]
+//! cargo run --release --example run -- <Toy16|Toy32|L1|L3|L5|Q3|Q5> [trials]
 use eigen_seta::kem::EigenSeta;
 use eigen_seta::params::*;
 use rand_core::OsRng;
@@ -52,6 +52,8 @@ fn main() {
         "L1" => go::<L1, 21>(trials),
         "L3" => go::<L3, 32>(trials),
         "L5" => go::<L5, 42>(trials),
+        "Q3" => go::<Q3, 61>(trials),
+        "Q5" => go::<Q5, 82>(trials),
         _ => panic!("unknown set"),
     }
 }

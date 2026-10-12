@@ -1,4 +1,4 @@
-//! cargo run --release --example pke_run -- <Toy16|Toy32|L1|L3|L5>
+//! cargo run --release --example pke_run -- <Toy16|Toy32|L1|L3|L5|Q3|Q5>
 use eigen_seta::kem::EigenSeta;
 use eigen_seta::params::*;
 use eigen_seta::pke::EigenSetaPke;
@@ -41,6 +41,8 @@ fn main() {
         "L1" => go::<L1, 21>(),
         "L3" => go::<L3, 32>(),
         "L5" => go::<L5, 42>(),
+        "Q3" => go::<Q3, 61>(),
+        "Q5" => go::<Q5, 82>(),
         _ => panic!("unknown set"),
     }
 }

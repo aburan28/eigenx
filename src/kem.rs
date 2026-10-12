@@ -73,6 +73,12 @@ impl SecretKey {
     pub fn secret_degree_bits(&self) -> u64 {
         self.f_bits
     }
+    /// The public key this secret key belongs to.
+    pub fn public_key(&self) -> PublicKey {
+        PublicKey {
+            bytes: self.pk.clone(),
+        }
+    }
 }
 
 /// Redacting Debug: never print secret scalars.
@@ -248,6 +254,212 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
     }
     pub fn ct_bytes() -> usize {
         4 * <F<P, N> as Field>::byte_len()
+    }
+
+    /// Serialised secret-key length: three scalars mod 2^E, two mod 3^F3,
+    /// the 32-byte rejection seed, the 8-byte degree bit length and the
+    /// public key.
+    pub fn sk_bytes() -> usize {
+        let ctx = Ctx::<P, N>::new();
+        3 * ctx.e.div_ceil(8) + 2 * ctx.d_bits.div_ceil(8) + 32 + 8 + Self::pk_bytes()
+    }
+
+    /// Serialise a secret key (little-endian scalars, then `z`, `f_bits`,
+    /// public key).  The caller is responsible for zeroising the output.
+    pub fn sk_to_bytes(sk: &SecretKey) -> Vec<u8> {
+        let ctx = Ctx::<P, N>::new();
+        let eb = ctx.e.div_ceil(8);
+        let db = ctx.d_bits.div_ceil(8);
+        let mut v = Vec::with_capacity(Self::sk_bytes());
+        v.extend(sk.lam_s.to_le_bytes(eb));
+        v.extend(sk.lam_t.to_le_bytes(eb));
+        v.extend(sk.cp2.to_le_bytes(eb));
+        v.extend(sk.c3.to_le_bytes(db));
+        v.extend(sk.cp3.to_le_bytes(db));
+        v.extend_from_slice(&sk.z);
+        v.extend_from_slice(&sk.f_bits.to_le_bytes());
+        v.extend_from_slice(&sk.pk);
+        v
+    }
+
+    /// Parse a secret key written by `sk_to_bytes`.  Returns `None` on a
+    /// length mismatch or an unparsable embedded public key.  The scalars
+    /// are reduced to their moduli so that a corrupted file cannot produce
+    /// out-of-range secret values.
+    pub fn sk_from_bytes(b: &[u8]) -> Option<SecretKey> {
+        if b.len() != Self::sk_bytes() {
+            return None;
+        }
+        let ctx = Ctx::<P, N>::new();
+        let eb = ctx.e.div_ceil(8);
+        let db = ctx.d_bits.div_ceil(8);
+        let el = ctx.e_limbs;
+        let dl = ctx.modd.limbs();
+        let mut off = 0usize;
+        let mut take = |n: usize| {
+            let s = &b[off..off + n];
+            off += n;
+            s
+        };
+        let s2 = |s: &[u8]| Scalar::from_le_bytes(s, el).mod_2k(ctx.e);
+        let lam_s = s2(take(eb));
+        let lam_t = s2(take(eb));
+        let cp2 = s2(take(eb));
+        let s3 = |s: &[u8]| {
+            let raw = Scalar::from_le_bytes(s, dl + 1);
+            ctx.modd.to_scalar_width(&ctx.modd.reduce(&raw), dl)
+        };
+        let c3 = s3(take(db));
+        let cp3 = s3(take(db));
+        let mut z = [0u8; 32];
+        z.copy_from_slice(take(32));
+        let mut fb = [0u8; 8];
+        fb.copy_from_slice(take(8));
+        let f_bits = u64::from_le_bytes(fb);
+        let pk = take(Self::pk_bytes()).to_vec();
+        let pkf = parse4::<F<P, N>>(&pk)?;
+        if !Self::pk_points_valid(&pkf) {
+            return None;
+        }
+        let pkh = shake(&[b"EigenSeta-P", &pk], 32);
+        let mut pkh_a = [0u8; 32];
+        pkh_a.copy_from_slice(&pkh);
+        Some(SecretKey {
+            lam_s,
+            lam_t,
+            cp2,
+            c3,
+            cp3,
+            z,
+            pk,
+            pkh: pkh_a,
+            f_bits,
+        })
+    }
+
+    /// The range [lo, 2 lo) from which the secret degree f is drawn.
+    pub fn secret_degree_range() -> (BigUint, BigUint) {
+        let lo = BigUint::parse_bytes(P::F_LO_HEX.as_bytes(), 16).unwrap();
+        let hi = &lo * 2u32;
+        (lo, hi)
+    }
+
+    /// The square root of -7 modulo 2^E used to split the eigenvalues of ω
+    /// (public).
+    fn sqrt_minus7_mod_2e(ctx: &Ctx<P, N>) -> BigUint {
+        let e = ctx.e;
+        let n2 = BigUint::one() << e;
+        let s_d = sqrt_mod_2power(&((BigUint::one() << (e + 2)) - 7u32), e as u64 + 2);
+        s_d % &n2
+    }
+
+    /// Kani scalars (c, c') for a candidate secret degree f, with the sign
+    /// choice that makes the fixed decapsulation schedule valid, or `None`
+    /// if f is not admissible (even, divisible by 3 or 7, 2f ≡ 2^E mod d,
+    /// 2^E − 7 d² f² not a usable sum of two squares, or no sign choice fits
+    /// the schedule).  Variable time; key generation and cryptanalysis only.
+    pub fn kani_scalars_for_degree<R: RngCore + CryptoRng>(
+        f: &BigUint,
+        flip: bool,
+        rng: &mut R,
+    ) -> Option<(BigInt, BigInt)> {
+        let ctx = Ctx::<P, N>::new();
+        let n2 = BigUint::one() << ctx.e;
+        let d = &ctx.d;
+        if (f % 2u32).is_zero() || (f % 3u32).is_zero() || (f % 7u32).is_zero() {
+            return None;
+        }
+        let two_f = BigInt::from(f.clone()) * 2 - BigInt::from(n2.clone());
+        if modpos(&two_f, d).is_zero() {
+            return None;
+        }
+        let m7 = d * d * f * f * 7u32;
+        if m7 >= n2 {
+            return None;
+        }
+        let m = &n2 - m7;
+        let (x, y) = two_squares(&m, rng, 1 << 14)?;
+        let (c0, cp0) = if (&x % 2u32).is_zero() {
+            (x, y)
+        } else {
+            (y, x)
+        };
+        let s_dm = Self::sqrt_minus7_mod_2e(&ctx);
+        let s_dm = if flip { &n2 - &s_dm } else { s_dm };
+        let s0 = (f * &s_dm) % &n2;
+        let ds0 = BigInt::from((d * &s0) % &n2);
+        let mut choice = None;
+        for sc in [1i32, -1] {
+            for scp in [1i32, -1] {
+                let c = BigInt::from(c0.clone()) * sc;
+                let cp = BigInt::from(cp0.clone()) * scp;
+                let lam_s = &ds0 + &c;
+                if v2(&(&cp - &lam_s)).max(v2(&(&cp + &lam_s))) == 2 {
+                    choice = Some((c.clone(), cp.clone()));
+                }
+            }
+        }
+        choice
+    }
+
+    /// Assemble a secret key from the secret degree f, its Kani scalars and
+    /// the public key.  `flip` swaps the roles of the two public basis points
+    /// (the sign of √−7); honest key generation uses `flip = false`.
+    fn secret_key_from_parts(
+        pk_bytes: &[u8],
+        f: &BigUint,
+        c: &BigInt,
+        cp: &BigInt,
+        flip: bool,
+        z: [u8; 32],
+    ) -> SecretKey {
+        let ctx = Ctx::<P, N>::new();
+        let n2 = BigUint::one() << ctx.e;
+        let d = &ctx.d;
+        let s_dm = Self::sqrt_minus7_mod_2e(&ctx);
+        let s_dm = if flip { &n2 - &s_dm } else { s_dm };
+        let s0 = (f * &s_dm) % &n2;
+        let ds0 = BigInt::from((d * &s0) % &n2);
+        let lam_s = modpos(&(&ds0 + c), &n2);
+        let lam_t = modpos(&(c - &ds0), &n2);
+        let pkh = shake(&[b"EigenSeta-P", pk_bytes], 32);
+        let mut pkh_a = [0u8; 32];
+        pkh_a.copy_from_slice(&pkh);
+        let el = ctx.e_limbs;
+        let dl = ctx.modd.limbs();
+        SecretKey {
+            lam_s: Scalar::from_biguint(&lam_s, el),
+            lam_t: Scalar::from_biguint(&lam_t, el),
+            cp2: Scalar::from_biguint(&modpos(cp, &n2), el),
+            c3: Scalar::from_biguint(&modpos(c, d), dl),
+            cp3: Scalar::from_biguint(&modpos(cp, d), dl),
+            z,
+            pk: pk_bytes.to_vec(),
+            pkh: pkh_a,
+            f_bits: f.bits(),
+        }
+    }
+
+    /// The secret key is a function of the secret degree f and public data.
+    /// Given a public key and a candidate f, return the (at most two) secret
+    /// keys consistent with it: one per assignment of the two public basis
+    /// points to the eigenvalues.  An attacker who learns f recovers the key
+    /// by testing both candidates against one self-made ciphertext.  Used by
+    /// the cryptanalysis module; variable time.
+    pub fn secret_keys_from_degree<R: RngCore + CryptoRng>(
+        pk: &PublicKey,
+        f: &BigUint,
+        rng: &mut R,
+    ) -> Vec<SecretKey> {
+        let mut z = [0u8; 32];
+        rng.fill_bytes(&mut z);
+        [false, true]
+            .into_iter()
+            .filter_map(|flip| {
+                let (c, cp) = Self::kani_scalars_for_degree(f, flip, rng)?;
+                Some(Self::secret_key_from_parts(&pk.bytes, f, &c, &cp, flip, z))
+            })
+            .collect()
     }
 
     fn ed_curve() -> WCurve<F<P, N>> {
@@ -560,6 +772,16 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
 
     /// Key generation (variable time).
     pub fn keygen<R: RngCore + CryptoRng>(rng: &mut R) -> (PublicKey, SecretKey) {
+        let (pk, sk, _f) = Self::keygen_with_trace(rng);
+        (pk, sk)
+    }
+
+    /// Key generation that also returns the secret degree f.  For the
+    /// cryptanalysis experiments, which need to know the true f to build
+    /// near-miss guesses; the KEM itself never stores f.
+    pub fn keygen_with_trace<R: RngCore + CryptoRng>(
+        rng: &mut R,
+    ) -> (PublicKey, SecretKey, BigUint) {
         loop {
             if let Some(kp) = Self::keygen_attempt(rng) {
                 return kp;
@@ -567,7 +789,60 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         }
     }
 
-    fn keygen_attempt<R: RngCore + CryptoRng>(rng: &mut R) -> Option<(PublicKey, SecretKey)> {
+    /// Deterministic encryption of a chosen kernel scalar s (mod 3^F3) under
+    /// a public key: the trapdoor function itself, without the KEM wrapper.
+    /// Public inputs only; used by the cryptanalysis module to confirm a
+    /// recovered s and by known-answer tests.
+    pub fn encrypt_scalar(pk: &PublicKey, s: &BigUint) -> Option<Ciphertext> {
+        let ctx = Ctx::<P, N>::new();
+        let pkf = parse4::<F<P, N>>(&pk.bytes)?;
+        if !Self::pk_points_valid(&pkf) {
+            return None;
+        }
+        let pkh = shake(&[b"EigenSeta-P", &pk.bytes], 32);
+        let s = Scalar::from_biguint(&(s % &ctx.d), ctx.modd.limbs());
+        Some(Ciphertext {
+            bytes: Self::enc_det(&ctx, &pkf, &s, &pkh)?,
+        })
+    }
+
+    /// The kernel scalar s as a `BigUint` from a recovered `Scalar`.
+    pub fn scalar_to_biguint(s: &Scalar) -> BigUint {
+        s.to_biguint()
+    }
+
+    /// The canonical (public) basis of E[3^F3] on the Montgomery curve with
+    /// coefficient `a`, as used by encapsulation.  `None` if the curve does
+    /// not carry the expected torsion.
+    pub fn public_basis_3(a: &F<P, N>) -> Option<WPair<P, N>> {
+        canonical_basis_3::<P, N>(a)
+    }
+
+    /// Walk the decapsulation chain for `(sk, ct)` in variable time with
+    /// structural checks (see `chain::ChainReport`).  `None` on a publicly
+    /// malformed ciphertext.  Analysis only.
+    pub fn inspect_decaps_chain(
+        sk: &SecretKey,
+        ct: &Ciphertext,
+    ) -> Option<crate::chain::ChainReport> {
+        let prep = Self::decaps_prepare(sk, ct)?;
+        let ctx = Ctx::<P, N>::new();
+        let wc = WCurve::from_montgomery(prep.a_c);
+        let e = ctx.e;
+        let k1 = (
+            smul_ct(&prep.a_c, &prep.s_pt, &sk.cp2, e),
+            smul_ct(&prep.a_c, &prep.s_pt, &sk.lam_s, e).neg(),
+        );
+        let k2 = (
+            smul_ct(&prep.a_c, &prep.t_pt, &sk.cp2, e),
+            smul_ct(&prep.a_c, &prep.t_pt, &sk.lam_t, e).neg(),
+        );
+        Some(crate::chain::inspect_chain(&wc, &k1, &k2, e))
+    }
+
+    fn keygen_attempt<R: RngCore + CryptoRng>(
+        rng: &mut R,
+    ) -> Option<(PublicKey, SecretKey, BigUint)> {
         let ctx = Ctx::<P, N>::new();
         let e = ctx.e;
         let d = ctx.d.clone();
@@ -584,43 +859,13 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         let w = |x: &WPoint<F<P, N>>| om.eval(x);
         let pd_e = eigenvector_2k(&ed, &w, &nu, e, rng); // omega-eigenvalue mu
         let qd_e = eigenvector_2k(&ed, &w, &mu, e, rng); // omega-eigenvalue nu
-        let s_dm = modpos(&s_d, &n2);
-        let lo = BigUint::parse_bytes(P::F_LO_HEX.as_bytes(), 16).unwrap();
+        let (lo, _) = Self::secret_degree_range();
         let pchar = crate::cm::p_plus_1::<F<P, N>>() - 1u32;
         // 1. secret degree f, Kani scalars (c, c') with the canonical schedule
         let (f, c, cp) = loop {
             let f = &lo + random_below(rng, &lo);
             let f = if (&f % 2u32).is_zero() { f + 1u32 } else { f };
-            if (&f % 3u32).is_zero() || (&f % 7u32).is_zero() {
-                continue;
-            }
-            let two_f = BigInt::from(f.clone()) * 2 - BigInt::from(n2.clone());
-            if modpos(&two_f, &d).is_zero() {
-                continue;
-            }
-            let m = &n2 - &d * &d * &f * &f * 7u32;
-            let Some((x, y)) = two_squares(&m, rng, 1 << 14) else {
-                continue;
-            };
-            let (c0, cp0) = if (&x % 2u32).is_zero() {
-                (x, y)
-            } else {
-                (y, x)
-            };
-            let s0 = (&f * &s_dm) % &n2;
-            let ds0 = BigInt::from((&d * &s0) % &n2);
-            let mut choice = None;
-            for sc in [1i32, -1] {
-                for scp in [1i32, -1] {
-                    let c = BigInt::from(c0.clone()) * sc;
-                    let cp = BigInt::from(cp0.clone()) * scp;
-                    let lam_s = &ds0 + &c;
-                    if v2(&(&cp - &lam_s)).max(v2(&(&cp + &lam_s))) == 2 {
-                        choice = Some((c.clone(), cp.clone()));
-                    }
-                }
-            }
-            if let Some((c, cp)) = choice {
+            if let Some((c, cp)) = Self::kani_scalars_for_degree(&f, false, rng) {
                 break (f, c, cp);
             }
         };
@@ -747,36 +992,17 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         let to_m = |x: F<P, N>| (x - r0) * si;
         let pk_f = [a_m, to_m(pp.x), to_m(qq.x), to_m(pq.x)];
         let pk_bytes = fbytes(&pk_f);
-        // 7. secret key
-        let s0 = (&f * &s_dm) % &n2;
-        let ds0 = BigInt::from((&d * &s0) % &n2);
-        let lam_s = modpos(&(&ds0 + &c), &n2);
-        let lam_t = modpos(&(&c - &ds0), &n2);
+        // 7. secret key: a function of f, (c, c') and the public key
         let mut z = [0u8; 32];
         rng.fill_bytes(&mut z);
-        let pkh = shake(&[b"EigenSeta-P", &pk_bytes], 32);
-        let mut pkh_a = [0u8; 32];
-        pkh_a.copy_from_slice(&pkh);
-        let el = ctx.e_limbs;
-        let dl = ctx.modd.limbs();
-        let sk = SecretKey {
-            lam_s: Scalar::from_biguint(&lam_s, el),
-            lam_t: Scalar::from_biguint(&lam_t, el),
-            cp2: Scalar::from_biguint(&modpos(&cp, &n2), el),
-            c3: Scalar::from_biguint(&modpos(&c, &d), dl),
-            cp3: Scalar::from_biguint(&modpos(&cp, &d), dl),
-            z,
-            pk: pk_bytes.clone(),
-            pkh: pkh_a,
-            f_bits: f.bits(),
-        };
+        let sk = Self::secret_key_from_parts(&pk_bytes, &f, &c, &cp, false, z);
         let pk = PublicKey { bytes: pk_bytes };
         // 8. self-test (one encapsulation must decapsulate)
         let (ctx_, k) = Self::encaps(&pk, rng)?;
         if Self::decaps(&sk, &ctx_) != k {
             return None;
         }
-        Some((pk, sk))
+        Some((pk, sk, f))
     }
 }
 

@@ -8,7 +8,7 @@
 //! decision is a mask.  inv(0) = 0.
 
 const M62: u64 = u64::MAX >> 2;
-pub const MAXL: usize = 48; // up to 48*62 = 2976 bits
+pub const MAXL: usize = 88; // up to 86 limbs are needed for the 5192-bit Q5 prime
 
 #[derive(Clone, Copy)]
 struct S62 {

@@ -40,12 +40,20 @@ impl RngCore for SplitMix {
 }
 impl CryptoRng for SplitMix {}
 
-const SETS: [(&str, usize, usize); 5] = [
-    ("Toy16", 16, 8),
-    ("Toy32", 32, 8),
-    ("L1", 128, 12),
-    ("L3", 192, 12),
-    ("L5", 256, 12),
+/// (name, lambda, kappa, d exponent multiplier m): d = 3^f3 >= 2^(m lambda).
+/// m = 2 sizes the sender's isogeny against classical meet-in-the-middle
+/// and mask search (cost d^(1/2) = 2^lambda); m = 4 also puts Grover-type
+/// quantum search over the masks (cost d^(1/4)) at 2^lambda.  See
+/// docs/SECURITY.md.  There is no Q1 because it would coincide with L5
+/// (4 * 128 = 2 * 256 gives the same f3 = 324 and the same prime).
+const SETS: [(&str, usize, usize, usize); 7] = [
+    ("Toy16", 16, 8, 2),
+    ("Toy32", 32, 8, 2),
+    ("L1", 128, 12, 2),
+    ("L3", 192, 12, 2),
+    ("L5", 256, 12, 2),
+    ("Q3", 192, 12, 4),
+    ("Q5", 256, 12, 4),
 ];
 
 fn find_prime(e: usize, f3: usize, rng: &mut SplitMix) -> (BigUint, u64) {
@@ -71,8 +79,8 @@ struct Set {
     lo: BigUint,
 }
 
-fn pick(lam: usize, kappa: usize, rng: &mut SplitMix) -> Set {
-    let f3 = (2.0 * lam as f64 / 3f64.log2()).ceil() as usize;
+fn pick(lam: usize, kappa: usize, mult: usize, rng: &mut SplitMix) -> Set {
+    let f3 = (mult as f64 * lam as f64 / 3f64.log2()).ceil() as usize;
     let d = BigUint::from(3u32).pow(f3 as u32);
     let bound = |e: usize, p: &BigUint| {
         let lo = (p >> e) * (BigUint::from(1u32) << kappa) + 1u32;
@@ -118,11 +126,11 @@ fn main() {
         "use crate::params::ParamSet;".to_string(),
         "use crate::fp::FpConfig;\n".to_string(),
     ];
-    for (name, lam, kappa) in SETS {
+    for (name, lam, kappa, mult) in SETS {
         if !want.is_empty() && !want.iter().any(|w| w == name) {
             continue;
         }
-        let s = pick(lam, kappa, &mut rng);
+        let s = pick(lam, kappa, mult, &mut rng);
         let p = &s.p;
         let bits = p.bits() as usize;
         let n = bits.div_ceil(64);
@@ -134,7 +142,7 @@ fn main() {
         let a4 = red(BigInt::from(-3) * &j * &k);
         let a6 = red(BigInt::from(-2) * &j * &k * &k);
         let dbits = s.f3 as f64 * 3f64.log2();
-        out.push(format!("// {name}: lambda = {}, p has {bits} bits ({n} limbs), e = {}, f3 = {} (d ~ 2^{:.1}), c = {}, kappa = {}", s.lam, s.e, s.f3, dbits, s.c, s.kappa));
+        out.push(format!("// {name}: lambda = {}, p has {bits} bits ({n} limbs), e = {}, f3 = {} (d ~ 2^{:.1}, d >= 2^({mult} lambda)), c = {}, kappa = {}", s.lam, s.e, s.f3, dbits, s.c, s.kappa));
         out.push(format!(
             "#[derive(Clone, Copy, Debug)]\npub struct {name}Fp;"
         ));

@@ -11,10 +11,38 @@ are in `docs/RESEARCH_ENDRING_PKE_STRATEGY.md` and
 made there.
 
 **Status.** Research code. It decapsulates correctly at the nominal L1, L3
-and L5 parameter sizes. Decapsulation is written to be constant time, and the
-instruction-count check is in `SIDE_CHANNELS.md`. The security levels are
-**conjectured** targets from the analysis below. No cryptanalysis by others
-exists. Do not use this to protect data.
+and L5 parameter sizes and at the quantum-hardened Q3 and Q5 sizes.
+Decapsulation is written to be constant time, and the instruction-count
+check is in `SIDE_CHANNELS.md`. The security levels are **conjectured**
+targets: `docs/SECURITY.md` costs every known attack per parameter set,
+records the toy-scale attack experiments that back the cost model, and lists
+what is not established. No cryptanalysis by others exists. Do not use this
+to protect data.
+
+What is in the box:
+
+* the `eigen_seta` library (KEM, PKE, serialisation of keys and
+  ciphertexts, a cost model and runnable toy-scale attacks);
+* the `eigenx` command-line tool (`keygen`, `encaps`, `decaps`, `encrypt`,
+  `decrypt`, `info`, `params`) with a versioned binary file format;
+* known-answer vectors, hostile-input tests, and CI that runs all of it.
+
+```
+cargo build --release --bin eigenx
+B=target/release/eigenx
+$B params                                   # table of parameter sets
+$B keygen  --set L1 --pk pk --sk sk         # ~30 s at L1
+$B encrypt --pk pk --in letter.txt --out letter.enc --aad "to: bob"
+$B decrypt --sk sk --in letter.enc --out letter.txt --aad "to: bob"
+$B encaps  --pk pk --ct ct --key k1         # KEM: fresh 32-byte key
+$B decaps  --sk sk --ct ct --key k2 && cmp k1 k2
+$B info letter.enc                          # kind, parameter set, sizes
+```
+
+Files start with the magic `EIGX`, a version byte, an object kind and a
+parameter-set id (`src/wire.rs`), so a key for one set cannot be fed to
+another by accident; secret-key files embed the public key and are checked
+on load.
 
 `pke::EigenSetaPke` adds message encryption using a fresh KEM encapsulation
 per message and ChaCha20-Poly1305 authenticated encryption. Its wire format
@@ -58,18 +86,29 @@ rejection gives the KEM.
 
 ## 2. Parameters, sizes and timings
 
-Parameters come from `cargo run --release --example gen_params`. That Rust
-port reproduces the former Sage script's output byte for byte.
+Parameters come from `cargo run --release --example gen_params`. For the
+Toy and L sets that Rust port reproduces the former Sage script's output
+byte for byte; the Q sets are new.
 
-| Set | target | p bits | limbs | E | F3 | d = 3^F3 | f bits | pk = ct bytes |
-|---|---|---|---|---|---|---|---|---|
-| Toy16 | none | 216 | 4 | 174 | 21 | 2^33.3 | 51 | 216 |
-| Toy32 | none | 369 | 6 | 297 | 41 | 2^65.0 | 80 | 376 |
-| L1 | 128 | 1341 | 21 | 1076 | 162 | 2^256.8 | 278 | 1344 |
-| L3 | 192 | 1991 | 32 | 1594 | 243 | 2^385.1 | 409 | 1992 |
-| L5 | 256 | 2630 | 42 | 2106 | 324 | 2^513.5 | 536 | 2632 |
+| Set | target λ | p bits | limbs | E | F3 | d = 3^F3 | f bits | pk = ct bytes | sk bytes |
+|---|---|---|---|---|---|---|---|---|---|
+| Toy16 | none | 216 | 4 | 174 | 21 | 2^33.3 | 50 | 216 | 332 |
+| Toy32 | none | 369 | 6 | 297 | 41 | 2^65.0 | 80 | 376 | 548 |
+| L1 | 128 | 1341 | 21 | 1076 | 162 | 2^256.8 | 277 | 1344 | 1855 |
+| L3 | 192 | 1991 | 32 | 1594 | 243 | 2^385.1 | 409 | 1992 | 2730 |
+| L5 | 256 | 2630 | 42 | 2106 | 324 | 2^513.5 | 536 | 2632 | 3594 |
+| Q3 | 192 (quantum) | 3904 | 61 | 3125 | 485 | 2^768.7 | 791 | 3904 | 5311 |
+| Q5 | 256 (quantum) | 5192 | 82 | 4155 | 647 | 2^1025.5 | 1049 | 5192 | 7050 |
 
-Shared secret: 32 bytes. Public key and ciphertext are each 4 F_p² elements.
+Shared secret: 32 bytes. Public key and ciphertext are each 4 F_p²
+elements; the sizes above exclude the 8-byte file header.
+
+The L sets take d = 3^F3 ≈ 2^(2λ), which gives 2^λ classical cost but only
+about 2^(λ/2) quantum *queries* against the FESTA-type mask search (they do
+meet NIST's gate-count metric under MAXDEPTH; see `docs/SECURITY.md` §5).
+The Q sets take d ≥ 2^(4λ) so that every known attack costs at least 2^λ
+quantum queries. There is no Q1 because at λ = 128 the construction yields
+exactly the L5 prime: **L5 is the quantum-hardened level-1 set.**
 
 Wall time, one thread, measured in run `run-20261011T1813Z-bench` on an
 Intel Xeon at 2.80 GHz (shared cloud VM, rustc 1.97.0, release build). The
@@ -88,6 +127,12 @@ brackets. Every decapsulation returned the encapsulated key.
 
 Keygen is a single sample. Its rejection sampling makes the time highly
 variable from key to key.
+
+The Q sets were run end to end through the CLI on one core of an Apple
+laptop (2026-10-12, rustc 1.93.1): Q3 keygen 1451 s, encaps 9.0 s, decaps
+547 s, PKE round trip correct; L1 on the same machine: keygen 28 s, encaps
+0.28 s, decaps 7.5 s. Q5 compiles and its field arithmetic is tested
+(`tests/field.rs::fq5`); a full Q5 run has not been timed.
 
 Decapsulation is slow because of how the chain is implemented. A callgrind
 profile at Toy16 puts most of the time in the Richelot steps in Mumford
@@ -111,18 +156,32 @@ Multiplication is the best of 15 runs and inversion the mean of 200.
 
 ## 3. Security, as conjectured
 
-The design targets λ = 128, 192 and 256 classical bits. The arguments are
-heuristic.
+`docs/SECURITY.md` is the full analysis. The short version:
 
-* **Key recovery** needs α or f. The degree f is drawn from [f_lo, 2 f_lo),
-  a range of about 2^277, 2^408 and 2^535 values at L1, L3 and L5. Every
-  known way to use the public torsion images first needs f. Endomorphism-ring computation for E_A is the generic attack. Its
-  cost is above 2^λ at these p sizes.
+* **Key recovery** needs f. The secret key is a deterministic function of f
+  and public data (`EigenSeta::secret_keys_from_degree` makes this explicit
+  and `tests/cryptanalysis.rs` checks it), so it carries about f_bits − 1
+  bits of entropy: 2^276, 2^408, 2^535 at L1, L3, L5. A wrong guess of f is
+  rejected only at the last step of the decapsulation chain, whatever its
+  agreement with the true f (measured at Toy16), so there is no bit-by-bit
+  recovery. Generic endomorphism-ring computation for E_A costs p^{1/3} to
+  p^{1/2} classically and p^{1/4} quantumly, far above 2^λ.
 * **Message recovery** is a FESTA-type problem: recover a 3^F3-isogeny from
-  masked torsion images. Guessing the masks or a meet-in-the-middle on the
-  3^F3-isogeny costs about 2^λ classically. Grover-type search costs about
-  2^(λ/2) quantum. That is the same exposure as FESTA, so the quantum
-  security is not at the NIST level of the same name.
+  masked torsion images. Guessing the masks (then Kani) or a
+  meet-in-the-middle on the isogeny costs d^{1/2} ≈ 2^λ classically; the
+  MITM is implemented and run at Toy16 (`cryptanalysis::mitm3`). Grover
+  over the masks costs 2^(λ/2) quantum queries on the L sets, which is the
+  reason for the Q sets.
+* **Quantum.** Nothing the attacker can compute is a group action (the
+  orientation of E_A is hidden), so no Kuperberg-type speed-up is known;
+  the quantum costs are Grover/Tani square and cube roots. `cargo run
+  --release --example security_estimate` prints classical cost, quantum
+  queries and quantum gates under NIST MAXDEPTH for every attack and set;
+  `tests/security.rs` asserts the floors.
+* **Single point of failure.** If α leaks (side channel on decapsulation),
+  End(E_A) follows in subexponential quantum time (Herlédan Le
+  Merdy–Wesolowski). Hence constant-time decapsulation and implicit
+  rejection.
 * **Earlier variants are broken.** The Sage prototype's `walk` variant leaks
   its trapdoor through a public degree. See section 4.
 
@@ -146,8 +205,11 @@ heuristic.
 
 | Path | Contents |
 |---|---|
-| `src/`, `tests/`, `examples/` | The `eigen_seta` crate |
+| `src/`, `tests/`, `examples/` | The `eigen_seta` crate and the `eigenx` binary |
+| `tests/kat/` | Known-answer vectors (regenerate with `EIGENX_UPDATE_KAT=1 cargo test --release --test kat`) |
 | `SIDE_CHANNELS.md` | Threat model and instruction-count assessment of the constant-time decapsulation path |
+| `docs/SECURITY.md` | Attack costs per parameter set, toy-scale attack experiments, quantum analysis, what is not established |
+| `docs/PLAN.md` | The build plan this repository follows, with status |
 | `docs/RESEARCH_ENDRING_PKE_STRATEGY.md` | Design note: literature survey, scheme design, corrections |
 | `research/eigen_seta_prototype_20261011/` | SageMath toy prototype (including the broken `walk` variant and the attack on it) |
 | `research/eigen_seta_toy_20261011/` | Earlier toy notes |
@@ -164,28 +226,37 @@ Modules of the crate:
 | `weier`, `kani`, `chain` | Weierstrass points, Vélu, gluing, Richelot and splitting (Castryck–Decru formulas, MIT), the fixed-schedule decapsulation chain |
 | `pairing` | Weil pairing of order 3^k, constant-time DLP in μ_{3^k} |
 | `cm`, `ntheory` | Key-generation helpers (variable time): E_D, ω, torsion bases, Cornacchia, Miller–Rabin |
-| `kem` | Key generation, encapsulation, decapsulation (public phase and constant-time core), FO transform |
+| `kem` | Key generation, encapsulation, decapsulation (public phase and constant-time core), FO transform, secret-key serialisation, key derivation from the secret degree |
+| `pke` | KEM + ChaCha20-Poly1305 message encryption |
+| `wire`, `sets`, `drbg` | File format (magic, version, kind, set id), parameter-set dispatch, SHAKE256 DRBG for test vectors |
+| `security` | Attack cost model: classical, quantum queries, quantum gates under MAXDEPTH |
+| `cryptanalysis` | Runnable attacks: key from degree, near-miss localisation experiment, MITM on the sender's isogeny, structural key checks |
+| `bin/eigenx` | Command-line tool |
 
 ## 6. Running
 
 ```
-cargo test --release                       # Toy16 KEM, chain, pairing, field tests
+cargo test --release                       # unit, KEM, KAT, robustness, CLI, toy cryptanalysis, cost model
 cargo test --release -- --ignored          # Toy32 KEM round trip
-cargo run --release --example run -- L1 3  # keygen + 3 encaps/decaps at L1
+cargo run --release --example run -- L1 3  # keygen + 3 encaps/decaps at L1 (also Q3, Q5)
 cargo run --release --example pke_run -- L1 # encrypt/decrypt a message at L1
+cargo run --release --example security_estimate   # attack cost table for every set
+cargo run --release --example cryptanalysis -- 3 4 # toy-scale attack report (keys, trials)
 cargo run --release --example bench_field  # F_p mul and inversion timings
 cargo run --release --example gen_params > src/params_generated.rs
 ```
 
 `tests/kem.rs::kem_toy32` is `#[ignore]` because of its run time. Use
-`cargo test --release -- --ignored` to run it.
+`cargo test --release -- --ignored` to run it. Builds are slow on network
+or external volumes; `CARGO_TARGET_DIR=/tmp/eigenx-target` helps.
 
 Untrusted public keys are checked for a nonsingular curve, a consistent
 differential point, and an independent full-order 2-power basis before
 encapsulation. The public 3-power basis search is bounded so malformed
 curve inputs cannot make it loop forever; malformed ciphertexts use
 implicit rejection. `.github/workflows/ci.yml` runs formatting, Clippy, the
-release tests including Toy32, and L1 KEM/PKE end-to-end smoke tests.
+release tests including Toy32, the attack cost table, and L1 KEM, PKE and
+CLI end-to-end smoke tests.
 
 ## 7. Provenance
 
