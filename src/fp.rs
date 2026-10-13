@@ -250,8 +250,10 @@ const fn p1_zero_limbs<const N: usize>(p: &[u64; N]) -> usize {
     z
 }
 
-/// Largest limb count with a stack product buffer (L5 uses 42).
-pub const MAX_LIMBS: usize = 48;
+/// Largest limb count with a stack product buffer. Q3 is 61 limbs and Q5 is
+/// 82; both are Montgomery-friendly (`p ≡ -1 (mod 2^{64Z})`), so they must
+/// take `mul_friendly` rather than generic CIOS.
+pub const MAX_LIMBS: usize = 96;
 
 /// Element of F_p in Montgomery form.
 pub struct Fp<C: FpConfig<N>, const N: usize> {
@@ -742,6 +744,22 @@ mod tests {
         }
     }
 
+    fn mul_matches_integer<C: FpConfig<N>, const N: usize>() {
+        let p = limbs_to_big(&C::MODULUS);
+        let a = Fp::<C, N>::from_u64(0x1234_5678_9abc_def0);
+        let b = Fp::<C, N>::from_u64(0x0fed_cba9_8765_4321);
+        let got = limbs_to_big(&a.mul(&b).to_canonical_limbs());
+        let want = (BigUint::from(0x1234_5678_9abc_def0u64)
+            * BigUint::from(0x0fed_cba9_8765_4321u64))
+            % &p;
+        assert_eq!(got, want, "{}", C::NAME);
+        assert!(
+            C::P1_ZERO_LIMBS > 0,
+            "{} should use the friendly reduction",
+            C::NAME
+        );
+    }
+
     #[test]
     fn montgomery_constants_match_bigint() {
         check::<Toy16Fp, 4>();
@@ -751,6 +769,16 @@ mod tests {
         check::<L5Fp, 42>();
         check::<Q3Fp, 61>();
         check::<Q5Fp, 82>();
+    }
+
+    #[test]
+    fn friendly_mul_matches_bigint_including_q_sets() {
+        mul_matches_integer::<Toy16Fp, 4>();
+        mul_matches_integer::<L1Fp, 21>();
+        mul_matches_integer::<Q3Fp, 61>();
+        mul_matches_integer::<Q5Fp, 82>();
+        assert!(Q5Fp::P1_ZERO_LIMBS > 0);
+        assert!(82 <= MAX_LIMBS);
     }
 
     #[test]
