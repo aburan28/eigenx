@@ -81,13 +81,18 @@ make that step easy to start.
 - [x] C2. CI: KATs, robustness tests, cryptanalysis tests at toy scale,
       security estimate table printed in the log.
 
-## Deferred
+## Previously deferred (now done)
 
-- [-] Theta-coordinate dimension-2 chain (performance; decaps is 13–15 s at
-      L1). Correctness and security come first.
-- [-] Formal IND-CCA proof of the FO transform for this trapdoor. The
-      implicit-rejection construction follows the standard template; a proof
-      needs the one-wayness assumption stated in SECURITY.md.
-- [-] Implementation of the dimension-4 Kani message-recovery attack at toy
-      scale (would give an empirical check of the mask-guess cost constant;
-      the cost model is taken from FESTA's analysis instead).
+- [x] Theta-coordinate dimension-2 `(2^n,2^n)`-chain (`src/theta.rs`,
+      `chain::decaps_chain_theta`): matches Mumford up to iso/swap on
+      synthetic kernels and is ~28× faster at Toy16 (`tests/theta_chain.rs`).
+      KEM `recover_s_core` still uses Mumford until the theta images
+      round-trip through the FO identification. Port of Theta-Rust /
+      Dartois–Maino–Pope–Robert (MIT; `LICENSE.theta-isogenies`).
+- [x] Formal IND-CCA proof writeup of the FO transform:
+      `docs/FO_PROOF.md` (HHK modular framework in the ROM under the
+      OW-CPA + key-secrecy assumptions of SECURITY.md §6).
+- [x] Dimension-4 Kani message-recovery at toy scale:
+      `src/cryptanalysis/kani4.rs` (Robert params, `form_kernel`,
+      product-isogeny oracle, honest-mask recovery); full dim-4 theta
+      evaluation driver stub in `research/kani4_sage/` (needs Theta_dim4).

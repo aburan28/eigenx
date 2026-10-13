@@ -193,6 +193,80 @@ impl<F: Field> Isog2<F> {
     }
 }
 
+/// Isomorphism from a Weierstrass curve with a rational 2-torsion point
+/// `(r, 0)` onto a Montgomery model `y^2 = x^3 + A x^2 + x`.
+///
+/// Translate by `r` so the torsion lands at `0`, then scale by `u^2 = √B`
+/// (B = the resulting linear coefficient) so the model is Montgomery.
+/// Map: `(x, y) ↦ ((x - r)/u², y/u³)`.
+#[derive(Clone, Copy, Debug)]
+pub struct ToMontgomery<F: Field> {
+    pub r: F,
+    pub u2: F,
+    pub u3: F,
+    pub inv_u2: F,
+    pub inv_u3: F,
+    pub curve: WCurve<F>,
+}
+
+impl<F: Field> ToMontgomery<F> {
+    /// Build the Montgomery model of `e` using 2-torsion x-coordinate `r`.
+    /// Garbage if `rhs(r) ≠ 0` or the translated linear coefficient is not
+    /// a square (the cases that arise from 2-isogenies of Montgomery curves
+    /// over `F_{p²}` are fine).
+    pub fn from_torsion(e: &WCurve<F>, r: F) -> Self {
+        let a2p = e.a2 + r.mul_small(3);
+        let a4p = e.a4 + e.a2.double() * r + r.square().mul_small(3);
+        let (u2, _) = a4p.sqrt();
+        let (u, _) = u2.sqrt();
+        let u3 = u2 * u;
+        let inv_u2 = u2.invert();
+        let inv_u3 = u3.invert();
+        let a_mont = a2p * inv_u2;
+        ToMontgomery {
+            r,
+            u2,
+            u3,
+            inv_u2,
+            inv_u3,
+            curve: WCurve::from_montgomery(a_mont),
+        }
+    }
+
+    pub fn eval(&self, p: &WPoint<F>) -> WPoint<F> {
+        let r = WPoint {
+            x: (p.x - self.r) * self.inv_u2,
+            y: p.y * self.inv_u3,
+            inf: Choice::from(0),
+        };
+        WPoint::conditional_select(&r, &WPoint::infinity(), p.inf)
+    }
+}
+
+/// The three 2-torsion x-coordinates on a Montgomery curve
+/// `y^2 = x^3 + A x^2 + x`: `{0, α, β}` with `α, β` the roots of
+/// `x^2 + A x + 1`.
+pub fn montgomery_2_torsion_xs<F: Field>(a: F) -> [F; 3] {
+    let disc = a.square() - F::from_i64(4);
+    let (sq, _) = disc.sqrt();
+    let inv2 = F::from_i64(2).invert();
+    let alpha = (-a + sq) * inv2;
+    let beta = (-a - sq) * inv2;
+    [F::zero(), alpha, beta]
+}
+
+/// The two non-kernel 2-torsion x-coordinates on `e`, given one 2-torsion
+/// root `ker_x` (e.g. an [`Isog2`] kernel).  Divides the 2-division cubic by
+/// `(x - ker_x)` and solves the resulting quadratic.
+pub fn complementary_2_torsion_xs<F: Field>(e: &WCurve<F>, ker_x: F) -> [F; 2] {
+    let s = e.a2 + ker_x;
+    let p = e.a4 + e.a2 * ker_x + ker_x.square();
+    let disc = s.square() - p.mul_small(4);
+    let (sq, _) = disc.sqrt();
+    let inv2 = F::from_i64(2).invert();
+    [(-s + sq) * inv2, (-s - sq) * inv2]
+}
+
 /// Isomorphism (x, y) -> (u^2 (x + s1) - s2, u^3 y) between two curves of
 /// this shape, s1 = a2/3, s2 = a2'/3.
 #[derive(Clone, Copy, Debug)]

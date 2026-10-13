@@ -697,6 +697,10 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
             smul_ct(&a_c, &t_pt, &sk.lam_t, e).neg(),
         );
         let o = WPoint::infinity();
+        // Mumford schedule (correct for recover_s_core identification).
+        // Theta `decaps_chain_theta` matches Mumford up to iso/swap on
+        // synthetic kernels (`tests/theta_chain.rs`, ~28× faster) but does
+        // not yet round-trip through this identification; keep Mumford here.
         let (fc, imgs) = decaps_chain(&wc, &k1, &k2, e, &[(x1, o), (o, x1), (x2, o)]);
         // identify the codomain factors with E_C: Phi(X,0) = (alpha X, -c'X), Phi(0,X) = (c'X, ...)
         let cpx1 = smul_ct(&a_c, &x1, &sk.cp3, ctx.d_bits);
@@ -804,6 +808,16 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         Some(Ciphertext {
             bytes: Self::enc_det(&ctx, &pkf, &s, &pkh)?,
         })
+    }
+
+    /// FO masks `(a, b)` for a kernel scalar under `pk` (same derivation as
+    /// encapsulation). Cryptanalysis only: lets the dim-4 / mask-guess
+    /// experiments feed the honest masks without reimplementing `G`.
+    pub fn masks_for_s(pk: &PublicKey, s: &BigUint) -> Option<(Scalar, Scalar)> {
+        let ctx = Ctx::<P, N>::new();
+        let pkh = shake(&[b"EigenSeta-P", &pk.bytes], 32);
+        let s = Scalar::from_biguint(&(s % &ctx.d), ctx.modd.limbs());
+        Some(Self::masks(&ctx, &Self::s_to_bytes(&ctx, &s), &pkh))
     }
 
     /// The kernel scalar s as a `BigUint` from a recovered `Scalar`.

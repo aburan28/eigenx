@@ -5,7 +5,7 @@
 //! `keys` key pairs are generated (default 3); the near-miss experiment
 //! uses `trials` wrong degrees per agreement level (default 4).  All
 //! randomness comes from a fixed DRBG seed so the report is reproducible.
-use eigen_seta::cryptanalysis::{checks, degree, mitm3};
+use eigen_seta::cryptanalysis::{checks, degree, kani4, mitm3};
 use eigen_seta::drbg::Drbg;
 use eigen_seta::kem::EigenSeta;
 use eigen_seta::params::{ParamSet, Toy16};
@@ -32,6 +32,8 @@ fn main() {
     let mut mitm_ok = 0;
     let mut mitm_secs = 0.0;
     let mut mitm_chains = 0u64;
+    let mut kani4_ok = 0;
+    let mut kani4_secs = 0.0;
     for i in 0..keys {
         let t0 = Instant::now();
         let (pk, _sk, f) = K::keygen_with_trace(&mut rng);
@@ -74,6 +76,22 @@ fn main() {
         mitm_ok += r.confirmed_by_reencryption as usize;
         mitm_secs += r.seconds;
         mitm_chains += r.chains_from_a + r.chains_from_c + r.chains_extend;
+        if let Some(s) = r.recovered_s.clone() {
+            if let Some((a, b)) = K::masks_for_s(&pk, &s) {
+                let k4 = kani4::attack::<Toy16, 4, _>(&pk, &ct, None, Some((a, b)), &mut rng);
+                println!(
+                    "  Kani4 mask+oracle: e={}, e_mask={}, guesses={}, oracle {:.3}s, total {:.1}s, recovered {}",
+                    k4.e,
+                    k4.e_mask,
+                    k4.guesses_tried,
+                    k4.oracle_seconds,
+                    k4.seconds,
+                    k4.confirmed_by_reencryption
+                );
+                kani4_ok += k4.confirmed_by_reencryption as usize;
+                kani4_secs += k4.seconds;
+            }
+        }
     }
     println!("\nNear-miss summary (all keys): agree_bits rows decaps_ok prodker_ok glue_ok early_split final_split mean_richelot_steps");
     let t = degree::summarise(&all_rows, None);
@@ -101,6 +119,6 @@ fn main() {
             s.mean_richelot_steps
         );
     }
-    println!("\nTotals: structural checks {checks_pass}/{keys}, key-from-degree {degree_recoveries}/{keys}, MITM {mitm_ok}/{keys} ({:.1}s, {} chains total; per chain {:.1} us)",
-        mitm_secs, mitm_chains, 1e6 * mitm_secs / mitm_chains.max(1) as f64);
+    println!("\nTotals: structural checks {checks_pass}/{keys}, key-from-degree {degree_recoveries}/{keys}, MITM {mitm_ok}/{keys} ({:.1}s, {} chains total; per chain {:.1} us), Kani4 {kani4_ok}/{keys} ({:.1}s)",
+        mitm_secs, mitm_chains, 1e6 * mitm_secs / mitm_chains.max(1) as f64, kani4_secs);
 }

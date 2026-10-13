@@ -246,6 +246,18 @@ match (expected ≈ 3^11/2), 53 000–164 000 to extend s to the full 3^21, i.e.
 2^18–2^19 chains and 45–70 s per key at 157 µs per chain. At L1 the same
 attack is 2^128 chains.
 
+### 4.4 Mask-guess + Robert/Kani (attack B scaffolding)
+
+`cryptanalysis::kani4` finds Robert parameters `(e, a1, a2)` with
+`2^e = d + a1² + a2²`, sets `e_mask = ⌈e/2⌉ + 2`, builds `form_kernel` on
+`E_A² × E_C²`, and times one dim-2 `product_isogeny` of length
+`min(e_mask, 12)` as the per-guess oracle cost. With the honest FO masks
+(from a known `s`) it recovers `s` via the MITM stand-in; without known
+masks it times guesses and does not claim recovery. Full dim-4 theta
+evaluation is the Sage driver in `research/kani4_sage/` (Theta_dim4). At
+Toy16, CI asserts Robert params exist, the honest-mask path confirms by
+re-encryption, and a no-honest-mask run of 8 guesses claims nothing.
+
 ## 5. Quantum security
 
 ### 5.1 Method
@@ -307,11 +319,12 @@ floor ≥ the AES reference at every MAXDEPTH for L1/L3/L5.
    f (equivalently α, equivalently End(E_A) with its orientation) costs at
    least min(C, D, E). The eigenbasis hint is assumed to give nothing
    beyond the rows above; §4.2 is the only experimental evidence.
-3. **FO transform.** IND-CCA follows from the above and the ROM in the
-   standard way for implicit-rejection FO, *provided* decapsulation is
-   correct for every honest ciphertext and constant time. Correctness has
-   held in every run at every parameter set; a correctness proof for the
-   fixed chain schedule is not written.
+3. **FO transform.** IND-CCA in the ROM follows from the above via the
+   HHK modular framework specialised to implicit rejection; the reduction
+   is written in `docs/FO_PROOF.md`. It assumes decapsulation is correct
+   for every honest ciphertext and constant time. Correctness has held in
+   every run at every parameter set; a correctness proof for the fixed
+   chain schedule is not written.
 
 ## 7. Implementation-level
 
@@ -334,8 +347,14 @@ Established, with evidence in this repository:
 * A wrong f′ is indistinguishable from any other wrong f′ at every step of
   the decapsulation chain except the last, at toy scale (§4.2).
 * A generic MITM attack on the sender's isogeny works as costed (§4.3).
+* Mask-guess + Robert/Kani scaffolding at Toy16: Robert parameters,
+  `form_kernel`, product-isogeny oracle cost, honest-mask recovery
+  (`cryptanalysis::kani4`; full dim-4 theta eval in `research/kani4_sage/`).
 * Costs of all known attacks under the stated models (§3, §5).
-* Correct, constant-time decapsulation; hostile-input behaviour (§7).
+* Correct, constant-time decapsulation (Mumford schedule; theta chain
+  available and cross-checked on synthetic kernels); hostile-input
+  behaviour (§7).
+* Author-written IND-CCA reduction for the FO transform (`docs/FO_PROOF.md`).
 
 Not established:
 
@@ -350,7 +369,9 @@ Not established:
   masks: Robert's dimension-8 attack needs the images of a known-order
   torsion basis, which the masks hide; whether the mask-independent
   *subgroups* φ(⟨P⟩), φ(⟨Q⟩) suffice for a higher-dimensional embedding is
-  open.
+  open. The *with-masks* dim-4 path is scaffolded in Rust and stubbed for
+  Theta_dim4 in Sage; it does not remove the mask guess.
+* Peer review of `docs/FO_PROOF.md` (author-written only).
 * External review. Nobody outside the project has looked at this.
 
 ### 8.1 Questions for reviewers

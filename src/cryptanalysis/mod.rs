@@ -10,6 +10,9 @@
 //!   or only at the end of the chain;
 //! * `mitm3`: meet-in-the-middle recovery of the sender's 3^F3-isogeny
 //!   kernel, the generic message-recovery attack, with its measured cost;
+//! * `kani4`: mask-guess + Robert/Kani message-recovery scaffolding (form
+//!   kernel, product-isogeny oracle cost; full dim-4 eval in
+//!   `research/kani4_sage/`);
 //! * `checks`: structural conditions that known attacks on related schemes
 //!   exploit, checked on actual keys.
 //!
@@ -17,4 +20,5 @@
 
 pub mod checks;
 pub mod degree;
+pub mod kani4;
 pub mod mitm3;

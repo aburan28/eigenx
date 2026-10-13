@@ -134,14 +134,14 @@ laptop (2026-10-12, rustc 1.93.1): Q3 keygen 1451 s, encaps 9.0 s, decaps
 0.28 s, decaps 7.5 s. Q5 compiles and its field arithmetic is tested
 (`tests/field.rs::fq5`); a full Q5 run has not been timed.
 
-Decapsulation is slow because of how the chain is implemented. A callgrind
-profile at Toy16 puts most of the time in the Richelot steps in Mumford
-coordinates. Each step inverts a polynomial modulo a quartic for every point
-it moves. That costs a few hundred F_p² multiplications per point, a figure
-estimated from the formulas, not measured. Dimension-2 chains in theta
-coordinates, as used by SQIsign2D and related work, avoid this polynomial
-arithmetic. Porting the chain to theta coordinates is the main open
-performance item. Its gain has not been measured here.
+A level-2 theta `(2^n,2^n)`-chain is implemented (`src/theta.rs`,
+`chain::decaps_chain_theta`), ported from Theta-Rust
+(Dartois–Maino–Pope–Robert; MIT, `LICENSE.theta-isogenies`). At Toy16 it
+matches Mumford `decaps_chain` up to isomorphism/factor swap and is about
+28× faster (`tests/theta_chain.rs`: ≈131 ms → ≈4.6 ms for e = 169). KEM
+decapsulation still uses the Mumford schedule until the theta images
+round-trip through FO identification; `inspect_chain` / near-miss stay
+on Mumford.
 
 In the same run, the field layer measured as follows, in ns per operation.
 Multiplication is the best of 15 runs and inversion the mean of 200.
@@ -169,9 +169,11 @@ Multiplication is the best of 15 runs and inversion the mean of 200.
 * **Message recovery** is a FESTA-type problem: recover a 3^F3-isogeny from
   masked torsion images. Guessing the masks (then Kani) or a
   meet-in-the-middle on the isogeny costs d^{1/2} ≈ 2^λ classically; the
-  MITM is implemented and run at Toy16 (`cryptanalysis::mitm3`). Grover
-  over the masks costs 2^(λ/2) quantum queries on the L sets, which is the
-  reason for the Q sets.
+  MITM is implemented and run at Toy16 (`cryptanalysis::mitm3`); the
+  mask-guess + Robert/Kani scaffolding is in `cryptanalysis::kani4` (full
+  dim-4 theta eval: `research/kani4_sage/`). Grover over the masks costs
+  2^(λ/2) quantum queries on the L sets, which is the reason for the Q sets.
+  IND-CCA of the FO transform: `docs/FO_PROOF.md`.
 * **Quantum.** Nothing the attacker can compute is a group action (the
   orientation of E_A is hidden), so no Kuperberg-type speed-up is known;
   the quantum costs are Grover/Tani square and cube roots. `cargo run
@@ -209,13 +211,15 @@ Multiplication is the best of 15 runs and inversion the mean of 200.
 | `tests/kat/` | Known-answer vectors (regenerate with `EIGENX_UPDATE_KAT=1 cargo test --release --test kat`) |
 | `SIDE_CHANNELS.md` | Threat model and instruction-count assessment of the constant-time decapsulation path |
 | `docs/SECURITY.md` | Attack costs per parameter set, toy-scale attack experiments, quantum analysis, what is not established; numbered claims and open questions for reviewers |
+| `docs/FO_PROOF.md` | IND-CCA reduction for the FO transform (HHK, ROM) |
 | `docs/REVIEW.md` | For reviewers: how to reproduce every number in the analysis and where to put comments |
 | `docs/PLAN.md` | The build plan this repository follows, with status |
 | `docs/RESEARCH_ENDRING_PKE_STRATEGY.md` | Design note: literature survey, scheme design, corrections |
+| `research/kani4_sage/` | Sage driver stub for full dim-4 Kani evaluation (Theta_dim4) |
 | `research/eigen_seta_prototype_20261011/` | SageMath toy prototype (including the broken `walk` variant and the attack on it) |
 | `research/eigen_seta_toy_20261011/` | Earlier toy notes |
 | `research/eigen_seta_rust_20261011/` | Benchmark, side-channel and round-trip run reports for this crate |
-| `LICENSE`, `LICENSE.castryck-decru` | MIT; the Richelot and gluing formulas in `kani.rs` carry the Castryck–Decru notice |
+| `LICENSE`, `LICENSE.castryck-decru`, `LICENSE.theta-isogenies` | MIT; Richelot/gluing (`kani.rs`) Castryck–Decru; theta chain (`theta.rs`) Theta-Rust / Dartois–Maino–Pope–Robert |
 
 Modules of the crate:
 
@@ -224,14 +228,14 @@ Modules of the crate:
 | `fp`, `safegcd`, `fp2`, `field` | Constant-time F_p (const-generic Montgomery, Montgomery-friendly reduction), Bernstein–Yang inversion, F_p² |
 | `scalar` | Fixed-width scalars mod 2^E and mod 3^F3 |
 | `mont`, `isog3`, `strategy` | x-only Montgomery ladders, y-recovery, 3-isogeny chains with optimal strategies |
-| `weier`, `kani`, `chain` | Weierstrass points, Vélu, gluing, Richelot and splitting (Castryck–Decru formulas, MIT), the fixed-schedule decapsulation chain |
+| `weier`, `kani`, `chain`, `theta` | Weierstrass points, Vélu, gluing, Richelot and splitting (Castryck–Decru formulas, MIT), fixed-schedule Mumford chain, level-2 theta `(2^n,2^n)` decapsulation chain |
 | `pairing` | Weil pairing of order 3^k, constant-time DLP in μ_{3^k} |
 | `cm`, `ntheory` | Key-generation helpers (variable time): E_D, ω, torsion bases, Cornacchia, Miller–Rabin |
 | `kem` | Key generation, encapsulation, decapsulation (public phase and constant-time core), FO transform, secret-key serialisation, key derivation from the secret degree |
 | `pke` | KEM + ChaCha20-Poly1305 message encryption |
 | `wire`, `sets`, `drbg` | File format (magic, version, kind, set id), parameter-set dispatch, SHAKE256 DRBG for test vectors |
 | `security` | Attack cost model: classical, quantum queries, quantum gates under MAXDEPTH |
-| `cryptanalysis` | Runnable attacks: key from degree, near-miss localisation experiment, MITM on the sender's isogeny, structural key checks |
+| `cryptanalysis` | Runnable attacks: key from degree, near-miss localisation, MITM on the sender's isogeny, mask-guess/Kani4 scaffolding, structural key checks |
 | `bin/eigenx` | Command-line tool |
 
 ## 6. Running

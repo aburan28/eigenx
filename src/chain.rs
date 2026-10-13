@@ -8,7 +8,8 @@ use crate::ct::{Choice, ConditionallySelectable};
 use crate::field::Field;
 use crate::kani::{div_dbl_iter, div_dbl_iter_batch, Div, Glue, Richelot, Split};
 use crate::strategy::optimal;
-use crate::weier::{Isog2, WCurve, WIso, WPoint};
+use crate::theta::product_isogeny;
+use crate::weier::{complementary_2_torsion_xs, Isog2, ToMontgomery, WCurve, WIso, WPoint};
 
 pub type Pair<F> = (WPoint<F>, WPoint<F>);
 
@@ -143,6 +144,94 @@ pub fn decaps_chain<F: Field>(
     let mut k2 = s.map(&gens[1]);
     let mut pay: Vec<Pair<F>> = extra.iter().map(|d| s.map(d)).collect();
     let (e3, e4) = (s.e1, s.e2);
+    // step e-1: product kernel (kernel of order 4)
+    let f = prodker_step(&e3, &e4, &k1, &k2, 1);
+    k1 = map_pair(&f, &k1);
+    k2 = map_pair(&f, &k2);
+    let _ = k2;
+    pay = pay.iter().map(|p| map_pair(&f, p)).collect();
+    let (e5, e6) = (f.0.codomain, f.1.codomain);
+    // step e: graph of an isomorphism e6 -> e5 on the 2-torsion
+    let tau = WIso::find(&e6, &e5);
+    let _ = k1;
+    let out: Vec<Pair<F>> = pay
+        .iter()
+        .map(|p| {
+            let t = tau.eval(&p.1);
+            (e5.add(&p.0, &t), e5.sub(&p.0, &t))
+        })
+        .collect();
+    (e5, out)
+}
+
+/// Push a complementary domain 2-torsion point through `phi` to get a
+/// rational 2-torsion x-coordinate on the (generally non-Montgomery)
+/// codomain, used to put that codomain into Montgomery form for theta.
+fn codomain_torsion_x<F: Field>(domain: &WCurve<F>, phi: &Isog2<F>) -> F {
+    let xs = complementary_2_torsion_xs(domain, phi.x0);
+    let img0 = phi.eval(&WPoint::new(xs[0], F::zero()));
+    let img1 = phi.eval(&WPoint::new(xs[1], F::zero()));
+    // Exactly one of the two non-kernel 2-torsion points maps to a finite
+    // 2-torsion on the codomain under a separable 2-isogeny (the other may
+    // coincide with the kernel of the dual); pick a finite image.
+    F::conditional_select(&img1.x, &img0.x, !img0.inf)
+}
+
+/// Theta-coordinate decapsulation chain: same outer schedule and signature
+/// as [`decaps_chain`], but the long middle (glue → (2,2)-steps → split) is
+/// evaluated with [`product_isogeny`] in the level-2 theta model.
+///
+/// After the first product-kernel step the remaining kernel generators have
+/// order `2^{e-2}` (the gluing input of the Mumford schedule).  The theta
+/// routines expect lifts of order `2^{n+2}` for an `n`-step chain (the extra
+/// two bits supply the 8-torsion used by gluing), so we take `n = e - 4`.
+/// The Velu `Isog2` codomains are rewritten into Montgomery models before
+/// gluing — the source formulas assume that shape.
+///
+/// Mumford [`decaps_chain`] is left unchanged; this is the parallel entry
+/// point for Eigen-Séta decapsulation experiments / a future recover switch.
+pub fn decaps_chain_theta<F: Field>(
+    ec: &WCurve<F>,
+    k1: &Pair<F>,
+    k2: &Pair<F>,
+    e: usize,
+    payload: &[Pair<F>],
+) -> (WCurve<F>, Vec<Pair<F>>) {
+    assert!(e >= 8);
+    // step 1: graph of the identity  (x, y) -> (x + y, x - y)
+    let mut k1 = graph_identity(ec, k1);
+    let mut k2 = graph_identity(ec, k2);
+    let mut pay: Vec<Pair<F>> = payload.iter().map(|p| graph_identity(ec, p)).collect();
+    // step 2: product kernel (kernel now of order 2^(e-1))
+    let f = prodker_step(ec, ec, &k1, &k2, e - 2);
+    k1 = map_pair(&f, &k1);
+    k2 = map_pair(&f, &k2);
+    pay = pay.iter().map(|p| map_pair(&f, p)).collect();
+
+    // Put both Isog2 codomains into Montgomery form (theta gluing/splitting
+    // is derived for y^2 = x^3 + A x^2 + x).
+    let tm1 = ToMontgomery::from_torsion(&f.0.codomain, codomain_torsion_x(ec, &f.0));
+    let tm2 = ToMontgomery::from_torsion(&f.1.codomain, codomain_torsion_x(ec, &f.1));
+    let map_mont = |p: &Pair<F>| (tm1.eval(&p.0), tm2.eval(&p.1));
+    k1 = map_mont(&k1);
+    k2 = map_mont(&k2);
+    pay = pay.iter().map(map_mont).collect();
+    let (c1, c2) = (tm1.curve, tm2.curve);
+
+    // steps 3 .. e-2: (2^{e-4}, 2^{e-4})-isogeny in the theta model.
+    // Push the kernel generators alongside the payload so their order-4
+    // images are available for the trailing product-kernel step.
+    let n = e - 4;
+    let strategy = optimal(n, 1.0, 1.0);
+    let pay_len = pay.len();
+    let mut images = pay;
+    images.push(k1);
+    images.push(k2);
+    let ((e3, e4), outs) = product_isogeny(&(c1, c2), &k1, &k2, &images, n, &strategy);
+    let mut pay = outs[..pay_len].to_vec();
+    let mut k1 = outs[pay_len];
+    let mut k2 = outs[pay_len + 1];
+
     // step e-1: product kernel (kernel of order 4)
     let f = prodker_step(&e3, &e4, &k1, &k2, 1);
     k1 = map_pair(&f, &k1);

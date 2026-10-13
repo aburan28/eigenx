@@ -33,5 +33,6 @@ pub mod scalar;
 pub mod security;
 pub mod sets;
 pub mod strategy;
+pub mod theta;
 pub mod weier;
 pub mod wire;
