@@ -208,7 +208,8 @@ Multiplication is the best of 15 runs and inversion the mean of 200.
 | `src/`, `tests/`, `examples/` | The `eigen_seta` crate and the `eigenx` binary |
 | `tests/kat/` | Known-answer vectors (regenerate with `EIGENX_UPDATE_KAT=1 cargo test --release --test kat`) |
 | `SIDE_CHANNELS.md` | Threat model and instruction-count assessment of the constant-time decapsulation path |
-| `docs/SECURITY.md` | Attack costs per parameter set, toy-scale attack experiments, quantum analysis, what is not established |
+| `docs/SECURITY.md` | Attack costs per parameter set, toy-scale attack experiments, quantum analysis, what is not established; numbered claims and open questions for reviewers |
+| `docs/REVIEW.md` | For reviewers: how to reproduce every number in the analysis and where to put comments |
 | `docs/PLAN.md` | The build plan this repository follows, with status |
 | `docs/RESEARCH_ENDRING_PKE_STRATEGY.md` | Design note: literature survey, scheme design, corrections |
 | `research/eigen_seta_prototype_20261011/` | SageMath toy prototype (including the broken `walk` variant and the attack on it) |

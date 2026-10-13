@@ -1,0 +1,56 @@
+name: Cryptanalysis finding
+description: An attack, a flaw in the cost model, or a parameter you think is wrong
+title: "[finding] "
+labels: ["cryptanalysis-finding"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for looking at this. `docs/REVIEW.md` explains how the numbers
+        in `docs/SECURITY.md` are produced; §0 of that document numbers the
+        claims. If the finding is a practical break at the L1/L3/L5 sizes,
+        please email the maintainer rather than filing it here.
+  - type: input
+    id: claim
+    attributes:
+      label: Claim(s) affected
+      description: From docs/SECURITY.md §0, e.g. "C3, C7", or "none (new attack)".
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - New attack or attack improvement
+        - Error in the cost model (src/security.rs)
+        - Error in an experiment or its interpretation (src/cryptanalysis)
+        - Parameter set problem (gen_params / sets.rs)
+        - Implementation flaw with security impact
+        - Literature: a result the paper should cite or mis-states
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Finding
+      description: The attack sketch, calculation, or reference. Equations in plain text are fine.
+    validations:
+      required: true
+  - type: textarea
+    id: cost
+    attributes:
+      label: Cost you obtain
+      description: log2 classical operations and/or quantum queries, per parameter set if it varies, with the model assumptions stated.
+      placeholder: "L1: 2^xx classical, 2^yy quantum queries, because ..."
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction (optional)
+      description: Code, a Sage/Magma script, or a command against this repository that demonstrates it at toy scale.
+  - type: input
+    id: revision
+    attributes:
+      label: Paper revision / commit
+      description: From the top of docs/SECURITY.md.
+      placeholder: "Revision 1, a204dbf"
