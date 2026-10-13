@@ -19,8 +19,12 @@ const SMALL_PRIMES: [u32; 54] = [
     197, 199, 211, 223, 227, 229, 233, 239, 241, 251,
 ];
 
-/// Miller–Rabin with deterministic small bases plus `extra` random bases.
-pub fn is_probable_prime<R: RngCore>(n: &BigUint, rng: &mut R, extra: usize) -> bool {
+/// Fixed Miller–Rabin bases for nothing-up-my-sleeve primes. No RNG: every
+/// candidate is accepted or rejected by the same public test (trial division
+/// by the first primes, then these bases). See `docs/NUMS.md`.
+pub const NUMS_MR_BASES: [u32; 12] = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37];
+
+fn miller_rabin(n: &BigUint, bases: &[BigUint]) -> bool {
     let two = BigUint::from(2u32);
     if *n < two {
         return false;
@@ -37,14 +41,10 @@ pub fn is_probable_prime<R: RngCore>(n: &BigUint, rng: &mut R, extra: usize) -> 
     let nm1 = n - 1u32;
     let s = nm1.trailing_zeros().unwrap_or(0);
     let d = &nm1 >> s;
-    let mut bases: Vec<BigUint> = [2u32, 3, 5, 7, 11, 13, 17]
-        .iter()
-        .map(|&b| BigUint::from(b))
-        .collect();
-    for _ in 0..extra {
-        bases.push(random_below(rng, &(n - 3u32)) + 2u32);
-    }
     'outer: for a in bases {
+        if a >= n {
+            continue;
+        }
         let mut x = a.modpow(&d, n);
         if x.is_one() || x == nm1 {
             continue;
@@ -58,6 +58,23 @@ pub fn is_probable_prime<R: RngCore>(n: &BigUint, rng: &mut R, extra: usize) -> 
         return false;
     }
     true
+}
+
+/// Nothing-up-my-sleeve primality: [`NUMS_MR_BASES`] only.
+pub fn is_nums_prime(n: &BigUint) -> bool {
+    let bases: Vec<BigUint> = NUMS_MR_BASES.iter().copied().map(BigUint::from).collect();
+    miller_rabin(n, &bases)
+}
+
+/// Miller–Rabin with the NUMS bases plus `extra` random bases.
+pub fn is_probable_prime<R: RngCore>(n: &BigUint, rng: &mut R, extra: usize) -> bool {
+    let mut bases: Vec<BigUint> = NUMS_MR_BASES.iter().copied().map(BigUint::from).collect();
+    if *n > BigUint::from(3u32) {
+        for _ in 0..extra {
+            bases.push(random_below(rng, &(n - 3u32)) + 2u32);
+        }
+    }
+    miller_rabin(n, &bases)
 }
 
 /// sqrt(a) mod prime q (Tonelli–Shanks); None if a is a non-residue.

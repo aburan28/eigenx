@@ -61,6 +61,12 @@ uniform in [f_lo, 2 f_lo)).
 
 ## 2. Parameter sets
 
+Primes are nothing-up-my-sleeve: `c` is the smallest positive integer such
+that `p = 2^(E+1)·3^F3·c − 1` passes the fixed-base Miller–Rabin test in
+`ntheory::is_nums_prime` and `p ≡ 3, 5 or 6 (mod 7)`. No RNG in the search.
+Recipe and the check command: `docs/NUMS.md`. `verify_nums` confirms every
+checked-in cofactor (Toy16 through Q5) is that minimum.
+
 | Set | λ | p bits | E | F3 | log2 d | f bits | quantum-hardened |
 |---|---|---|---|---|---|---|---|
 | Toy16 | 16 | 216 | 174 | 21 | 33.3 | 50 | no |

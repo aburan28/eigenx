@@ -51,7 +51,8 @@ Still open (needs external work or Sage):
 
 | Item | Status |
 |---|---|
-| Wire `attack.sage` to a real Theta_dim4 checkout; recover s at Toy16 | [ ] |
+| Run Theta_dim4 `KaniEndoHalf` on the published e_A=16 instance (eval correct) | [x] `research/kani4_sage/SMALLEST_RUN.md` |
+| Recover an Eigen-Séta Toy16 ciphertext inside Theta_dim4 (field glue) | [ ] |
 | Measure per-guess dim-4 cost; feed into security.rs oracle note | [ ] |
 | Fill LITERATURE_DRILL.md pass/fail for each citation | [ ] cryptanalyst time |
 | Peer review of docs/FO_PROOF.md | [ ] |
@@ -70,6 +71,7 @@ Still open:
 
 | Item | Status |
 |---|---|
+| NUMS primes: smallest c, fixed MR bases, `verify_nums` | [x] `docs/NUMS.md` |
 | Platform field mul (Fiat / asm) behind a feature flag | [ ] engineering |
 | Batch inversions / strategy tuning vs upstream Theta-Rust | [ ] |
 | Parallelise inside a single keygen_attempt (not just multi-attempt) | [ ] |

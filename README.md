@@ -221,6 +221,7 @@ Multiplication is the best of 15 runs and inversion the mean of 200.
 | `docs/SECURITY.md` | Attack costs per parameter set, toy-scale attack experiments, quantum analysis, what is not established; numbered claims and open questions for reviewers |
 | `docs/FO_PROOF.md` | IND-CCA reduction for the FO transform (HHK, ROM) |
 | `docs/REVIEW.md` | For reviewers: how to reproduce every number in the analysis and where to put comments |
+| `docs/NUMS.md` | Nothing-up-my-sleeve prime recipe (smallest cofactor, fixed MR bases) |
 | `docs/ROADMAP.md` | Remaining work for Tier A/B claims, review, kani4_sage, performance |
 | `docs/LITERATURE_DRILL.md` | Pass/fail template for open cryptanalysis questions |
 | `docs/PLAN.md` | The build plan this repository follows, with status |
