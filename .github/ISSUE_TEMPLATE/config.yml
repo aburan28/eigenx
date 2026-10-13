@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: How to review the security analysis
+    url: https://github.com/aburan28/eigenx/blob/main/docs/REVIEW.md
+    about: What is claimed, how to reproduce every number, where comments go.

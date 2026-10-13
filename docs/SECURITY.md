@@ -1,5 +1,10 @@
 # Eigen-Séta v2: security analysis
 
+Revision 1, 2026-10-12, describing the implementation at commit `a204dbf`.
+**Under review**: comments are collected on the pull request that carries
+this document and as issues using the "Cryptanalysis finding" template;
+`docs/REVIEW.md` explains how to reproduce every number here.
+
 Status of this document: an internal analysis by the authors of the scheme,
 with every attack that we know of costed, the two assumptions that the cost
 model rests on tested experimentally at toy scale, and the literature that
@@ -11,6 +16,27 @@ The numbers in this document are produced by `cargo run --release --example
 security_estimate` (cost model, `src/security.rs`) and `cargo run --release
 --example cryptanalysis` (toy-scale attacks, `src/cryptanalysis/`), and
 asserted in `tests/security.rs` and `tests/cryptanalysis.rs`.
+
+## 0. Claims under review
+
+Each claim is numbered so that a review comment can name it. "Evidence"
+says what in this repository backs it; "kind" says whether that evidence is
+a measurement, a calculation from stated assumptions, or a reading of the
+literature.
+
+| # | Claim | Evidence | Kind |
+|---|---|---|---|
+| C1 | The secret key is a deterministic function of the secret degree f and public data; it has no entropy beyond f. | `EigenSeta::secret_keys_from_degree`; `tests/cryptanalysis.rs::key_is_a_function_of_the_secret_degree`; §4.1 | measured (Toy16, every run) |
+| C2 | A wrong degree f′ is rejected only at the final splitting step of the decapsulation chain, independently of how many low bits it shares with f; no bit-by-bit recovery of f. | `cryptanalysis::degree::near_miss_experiment`, `chain::inspect_chain`; §4.2 | measured (Toy16, k ≤ 40 of 50 bits) |
+| C3 | Message recovery by mask guessing costs 2^e′ Kani evaluations with 2^(2e′) ≥ d classically and 2^(e′/2) under Grover, and is the binding attack on L1/L3/L5. | §3.1 B; `security::estimate` | calculation (FESTA's classical analysis + Grover); the Kani recovery step given correct masks is **not** implemented here |
+| C4 | Generic meet-in-the-middle on the sender's 3^F3-isogeny costs d^{1/2}. | `cryptanalysis::mitm3`; §4.3 | measured (Toy16, 3/3 recoveries) |
+| C5 | Key recovery by guessing f costs 2^(f_bits − 2)/ln(2^E) decapsulations; the sum-of-two-squares filter is the only cheap pruning. | §3.2 C; C1, C2 | calculation on top of C1, C2 |
+| C6 | No sub-square-root quantum speed-up is available: the attacker holds no effective orientation, so Kuperberg does not apply; Tani is no better than vOW with memory costed. | §3.2 E, §5.2; Wesolowski 2021/1583, Jaques–Schanck | literature |
+| C7 | Every known attack costs ≥ 2^λ classically on L1/L3/L5/Q3/Q5; L1/L3/L5 meet NIST categories 1/3/5 in the gate-count-under-MAXDEPTH metric; Q3/Q5 (and L5 as the level-1 set) cost ≥ 2^λ quantum queries. | `security::estimate`; `tests/security.rs`; §5 | calculation under the oracle costs of §5.1 |
+| C8 | Self-pairing, lollipop and FESTA adaptive attacks do not apply as stated (disc = −7f² odd and coprime to 3; eigenlines belong to the secret α; constant-time decapsulation with implicit rejection). | §3.3; `cryptanalysis::checks`; `tests/robustness.rs`; `SIDE_CHANNELS.md` | literature + measured |
+| C9 | The Q3/Q5 parameters are generated correctly and run end to end; there is no Q1 because the construction reproduces the L5 prime. | `examples/gen_params.rs` (regeneration is byte-identical); CLI run at Q3 | measured |
+
+Questions we would most like reviewers to answer are in §8.1.
 
 ## 1. What the attacker sees
 
@@ -326,6 +352,44 @@ Not established:
   *subgroups* φ(⟨P⟩), φ(⟨Q⟩) suffice for a higher-dimensional embedding is
   open.
 * External review. Nobody outside the project has looked at this.
+
+### 8.1 Questions for reviewers
+
+1. **Eigenbasis leakage (C5, C6).** The public key exposes two horizontal
+   2-isogeny walks of length E in the hidden Z[f·ω]-orientation of E_A. We
+   treat this as useless without an effective orientation. Is there a way
+   to use the two walks together (they are eigenlines of the *same*
+   endomorphism, with the pairing of their scaled generators public) that
+   does not require evaluating the class-group action?
+2. **Mask-free higher-dimensional embedding (C3).** The subgroups
+   φ(⟨P⟩), φ(⟨Q⟩) ⊂ E_C are mask-independent. Can a dimension-4 or -8 Kani
+   embedding be built from the subgroups alone, or from the subgroups plus
+   the pairing value a·b·d mod 2^E, without guessing the masks?
+3. **Oracle costing (C7).** The Grover oracle is costed at 2^8 F_{p²}
+   multiplications per (2,2)-step with Karatsuba field multiplication and
+   depth = gates/16. Is this defensible as a lower bound given
+   theta-coordinate implementations, and does the NIST parallel-Grover
+   accounting apply as used in `security::grover_gates_log2`?
+4. **Degree-search pruning (C5).** Only f′ with 2^E − 7d²f′² a sum of two
+   squares (with a 2-adic sign condition) yield a key. Is there any cheaper
+   test than the sum-of-two-squares check that prunes further, or any
+   structure in the set of admissible f′ that an attacker could enumerate
+   faster than by sampling?
+5. **Composite f (C8).** f is a random odd integer coprime to 21, not a
+   prime. SCALLOP-type attacks on smooth conductors need an effective
+   orientation. Is there a weak-key class for composite or smooth f that
+   does not?
+6. **Level-structure attacks (§8).** Do the reductions of De Feo–Fouotsa–
+   Panny (2024/459) or the level-structure group action of Arpin et al.
+   (2024/1172) give anything with the eigenbasis as level structure?
+7. **Decisional assumption.** The IND-CPA assumption is decisional
+   eigen-CIST (§6, assumption 1). Is the problem even well posed given that every basis
+   is an eigenbasis of *some* endomorphism (§3.3), and is there a
+   distinguisher based on the size of the smallest diagonal endomorphism?
+8. **Correctness and FO (§6, assumption 3).** Decapsulation has never failed on an
+   honest ciphertext, but there is no proof that the fixed chain schedule
+   is correct for every key. A correctness failure rate ε would enter the
+   FO bound; what is the right way to bound it?
 
 ## 9. Sources
 
