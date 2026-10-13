@@ -11,7 +11,7 @@
 //!   deterministic trapdoor function s -> (E_C, [a]phi(P), [b]phi(Q)),
 //!   (a, b) = G(s, pk). IND-CCA security has not been established.
 
-use crate::chain::{decaps_chain, first_step_glues, keygen_chain, Pair};
+use crate::chain::{decaps_chain_theta, first_step_glues, keygen_chain, Pair};
 use crate::cm::{
     add_vartime, eigenvector_2k, mul_vartime, point_from_x, point_of_order, torsion_basis, Omega,
 };
@@ -697,81 +697,92 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
             smul_ct(&a_c, &t_pt, &sk.lam_t, e).neg(),
         );
         let o = WPoint::infinity();
-        // Mumford schedule (correct for recover_s_core identification).
-        // Theta `decaps_chain_theta` matches Mumford up to iso/swap on
-        // synthetic kernels (`tests/theta_chain.rs`, ~28× faster) but does
-        // not yet round-trip through this identification; keep Mumford here.
-        let (fc, imgs) = decaps_chain(&wc, &k1, &k2, e, &[(x1, o), (o, x1), (x2, o)]);
-        // identify the codomain factors with E_C: Phi(X,0) = (alpha X, -c'X), Phi(0,X) = (c'X, ...)
+        // Theta (2,2)-chain (~28× faster at Toy16). Split recovers points from
+        // the Kummer line (y-signs ambiguous) and may swap product factors per
+        // payload point; identify α by matching −c′X's x-coordinate on each
+        // image independently, then CT-select among α y-sign patterns.
+        let (fc, imgs) = decaps_chain_theta(&wc, &k1, &k2, e, &[(x1, o), (o, x1), (x2, o)]);
         let cpx1 = smul_ct(&a_c, &x1, &sk.cp3, ctx.d_bits);
         let cpx2 = smul_ct(&a_c, &x2, &sk.cp3, ctx.d_bits);
         let sig = WIso::find(&fc, &wc);
         let mut alpha1 = WPoint::infinity();
         let mut alpha2 = WPoint::infinity();
-        for swap in [false, true] {
-            let pick = |pr: &Pair<F<P, N>>, first: bool| if first ^ swap { pr.0 } else { pr.1 };
-            for sc in [sig, sig.negate()] {
-                let ok_c = sc.eval(&pick(&imgs[0], false)).ct_eq(&cpx1.neg())
-                    & sc.eval(&pick(&imgs[2], false)).ct_eq(&cpx2.neg());
-                for sa in [sig, sig.negate()] {
-                    let ok_a = sa.eval(&pick(&imgs[1], true)).ct_eq(&cpx1);
-                    let ok = ok_c & ok_a;
-                    alpha1 =
-                        WPoint::conditional_select(&alpha1, &sa.eval(&pick(&imgs[0], true)), ok);
-                    alpha2 =
-                        WPoint::conditional_select(&alpha2, &sa.eval(&pick(&imgs[2], true)), ok);
-                }
-            }
+        // Phi(X,0) = (αX, −c′X) up to component order and iso sign.
+        let pick_alpha = |pr: &Pair<F<P, N>>, cpx_neg: &WPoint<F<P, N>>, sc: &WIso<F<P, N>>| {
+            let u = sc.eval(&pr.0);
+            let v = sc.eval(&pr.1);
+            let match_u = u.x.ct_eq(&cpx_neg.x) & !u.inf;
+            let match_v = v.x.ct_eq(&cpx_neg.x) & !v.inf;
+            // match_u → α = v; match_v → α = u.
+            let alpha = WPoint::conditional_select(&u, &v, match_u);
+            let alpha = WPoint::conditional_select(&alpha, &u, match_v);
+            (alpha, match_u | match_v)
+        };
+        for sc in [sig, sig.negate()] {
+            let (a1, ok1) = pick_alpha(&imgs[0], &cpx1.neg(), &sc);
+            let (a2, ok2) = pick_alpha(&imgs[2], &cpx2.neg(), &sc);
+            let ok = ok1 & ok2;
+            alpha1 = WPoint::conditional_select(&alpha1, &a1, ok);
+            alpha2 = WPoint::conditional_select(&alpha2, &a2, ok);
         }
-        // psi'(X) = alpha(X) - c X
-        let psi1 = wc.sub(&alpha1, &smul_ct(&a_c, &x1, &sk.c3, ctx.d_bits));
-        let psi2 = wc.sub(&alpha2, &smul_ct(&a_c, &x2, &sk.c3, ctx.d_bits));
-        // generator G of psi'(E_C[d]) (full order), the other image H = k G;
-        // k from pairings with a reference point R making e(G, R) full order.
         let k3 = P::F3;
         let d = &ctx.d;
         let pcc = ProjCurve::from_affine(a_c);
-        let g1_full =
-            !xtpl_iter(&XPoint::from_affine(psi1.x), k3 - 1, &pcc).is_infinity() & !psi1.inf;
-        let g = WPoint::conditional_select(&psi2, &psi1, g1_full);
-        let h = WPoint::conditional_select(&psi1, &psi2, g1_full);
-        let xg = WPoint::conditional_select(&x2, &x1, g1_full);
-        let xh = WPoint::conditional_select(&x1, &x2, g1_full);
-        let e_g1 = weil_sq(&wc, &g, &x1, d);
-        let e_g2 = weil_sq(&wc, &g, &x2, d);
-        let r1_full = full_order_3k(&e_g1, k3);
-        let r = WPoint::conditional_select(&x2, &x1, r1_full);
-        let base = F::<P, N>::conditional_select(&e_g2, &e_g1, r1_full);
-        let tgt = weil_sq(&wc, &h, &r, d);
-        let kk = dlog_3k(&base, &tgt, k3);
-        let kk = ctx
-            .modd
-            .to_scalar_width(&ctx.modd.reduce(&kk), ctx.modd.limbs());
-        // kernel of psi' (= ker phi_dual): X_h - k X_g
-        let khat = wc.sub(&xh, &smul_ct(&a_c, &xg, &kk, ctx.d_bits));
-        // phi_dual and the images of X1, X2 in E_A
-        let mut pts = [XPoint::from_affine(x1.x), XPoint::from_affine(x2.x)];
-        let cod = chain3(&pcc, &XPoint::from_affine(khat.x), k3, &mut pts);
-        let a_cod = cod.affine_a();
-        let neg = a_cod.ct_eq(&(-a_a));
         let pa = ProjCurve::from_affine(a_a);
-        let mut imx = [F::<P, N>::zero(); 2];
-        for i in 0..2 {
-            let x = pts[i].affine();
-            imx[i] = F::<P, N>::conditional_select(&x, &(-x), neg);
-        }
-        let full0 = !xtpl_iter(&XPoint::from_affine(imx[0]), k3 - 1, &pa).is_infinity();
-        let xkg = F::<P, N>::conditional_select(&imx[1], &imx[0], full0);
         let wa = WCurve::from_montgomery(a_a);
-        let (yk, _) = wa.rhs(&xkg).sqrt();
-        let kg = WPoint::new(xkg, yk);
-        // s = y/x where Kg = x Pd + y Qd:  e(Kg, Qd) = g^(u x), e(Pd, Kg) = g^(u y)
         let (pd, qd) = (pk_basis.pd, pk_basis.qd);
-        let z1 = weil_sq(&wa, &kg, &qd, d);
-        let z2 = weil_sq(&wa, &pd, &kg, d);
-        let s = dlog_3k(&z1, &z2, k3);
-        ctx.modd
-            .to_scalar_width(&ctx.modd.reduce(&s), ctx.modd.limbs())
+        let cx1 = smul_ct(&a_c, &x1, &sk.c3, ctx.d_bits);
+        let cx2 = smul_ct(&a_c, &x2, &sk.c3, ctx.d_bits);
+        let limbs = ctx.modd.limbs();
+        let mut best = Scalar::zero(limbs);
+        // Four y-sign patterns for (alpha1, alpha2). Correct codomain of the
+        // dual 3-isogeny selects the right pattern(s) in constant time.
+        for flip1 in [false, true] {
+            for flip2 in [false, true] {
+                let a1 = if flip1 { alpha1.neg() } else { alpha1 };
+                let a2 = if flip2 { alpha2.neg() } else { alpha2 };
+                let psi1 = wc.sub(&a1, &cx1);
+                let psi2 = wc.sub(&a2, &cx2);
+                let g1_full = !xtpl_iter(&XPoint::from_affine(psi1.x), k3 - 1, &pcc).is_infinity()
+                    & !psi1.inf;
+                let g = WPoint::conditional_select(&psi2, &psi1, g1_full);
+                let h = WPoint::conditional_select(&psi1, &psi2, g1_full);
+                let xg = WPoint::conditional_select(&x2, &x1, g1_full);
+                let xh = WPoint::conditional_select(&x1, &x2, g1_full);
+                let e_g1 = weil_sq(&wc, &g, &x1, d);
+                let e_g2 = weil_sq(&wc, &g, &x2, d);
+                let r1_full = full_order_3k(&e_g1, k3);
+                let r = WPoint::conditional_select(&x2, &x1, r1_full);
+                let base = F::<P, N>::conditional_select(&e_g2, &e_g1, r1_full);
+                let tgt = weil_sq(&wc, &h, &r, d);
+                let kk = dlog_3k(&base, &tgt, k3);
+                let kk = ctx.modd.to_scalar_width(&ctx.modd.reduce(&kk), limbs);
+                let khat = wc.sub(&xh, &smul_ct(&a_c, &xg, &kk, ctx.d_bits));
+                let mut pts = [XPoint::from_affine(x1.x), XPoint::from_affine(x2.x)];
+                let cod = chain3(&pcc, &XPoint::from_affine(khat.x), k3, &mut pts);
+                let a_cod = cod.affine_a();
+                let land = a_cod.ct_eq(&a_a) | a_cod.ct_eq(&(-a_a));
+                let neg = a_cod.ct_eq(&(-a_a));
+                let mut imx = [F::<P, N>::zero(); 2];
+                for i in 0..2 {
+                    let x = pts[i].affine();
+                    imx[i] = F::<P, N>::conditional_select(&x, &(-x), neg);
+                }
+                let full0 = !xtpl_iter(&XPoint::from_affine(imx[0]), k3 - 1, &pa).is_infinity();
+                let xkg = F::<P, N>::conditional_select(&imx[1], &imx[0], full0);
+                let (yk, _) = wa.rhs(&xkg).sqrt();
+                let kg = WPoint::new(xkg, yk);
+                let z1 = weil_sq(&wa, &kg, &qd, d);
+                let z2 = weil_sq(&wa, &pd, &kg, d);
+                let s = dlog_3k(&z1, &z2, k3);
+                let s = ctx.modd.to_scalar_width(&ctx.modd.reduce(&s), limbs);
+                // CT limb-wise select when the dual lands on E_A.
+                for i in 0..limbs {
+                    best.l[i] = u64::conditional_select(&best.l[i], &s.l[i], land);
+                }
+            }
+        }
+        best
     }
 
     /// Key generation (variable time).
@@ -1064,5 +1075,14 @@ mod tests {
             ]),
         };
         assert!(EigenSeta::<Toy16, 4>::encaps(&singular, &mut rng).is_none());
+    }
+
+    #[test]
+    fn theta_decaps_round_trips_toy16() {
+        use crate::drbg::Drbg;
+        let mut rng = Drbg::for_vector("theta-kem-roundtrip", 0);
+        let (pk, sk) = EigenSeta::<Toy16, 4>::keygen(&mut rng);
+        let (ct, ss) = EigenSeta::<Toy16, 4>::encaps(&pk, &mut rng).unwrap();
+        assert_eq!(EigenSeta::<Toy16, 4>::decaps(&sk, &ct), ss);
     }
 }

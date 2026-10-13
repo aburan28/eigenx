@@ -84,11 +84,11 @@ make that step easy to start.
 ## Previously deferred (now done)
 
 - [x] Theta-coordinate dimension-2 `(2^n,2^n)`-chain (`src/theta.rs`,
-      `chain::decaps_chain_theta`): matches Mumford up to iso/swap on
-      synthetic kernels and is ~28× faster at Toy16 (`tests/theta_chain.rs`).
-      KEM `recover_s_core` still uses Mumford until the theta images
-      round-trip through the FO identification. Port of Theta-Rust /
-      Dartois–Maino–Pope–Robert (MIT; `LICENSE.theta-isogenies`).
+      `chain::decaps_chain_theta`): wired into KEM `recover_s_core` with
+      x-only FO identification and CT α y-sign search. ~28× faster chain at
+      Toy16 (`tests/theta_chain.rs`); Mumford retained for `inspect_chain`.
+      Port of Theta-Rust / Dartois–Maino–Pope–Robert (MIT;
+      `LICENSE.theta-isogenies`).
 - [x] Formal IND-CCA proof writeup of the FO transform:
       `docs/FO_PROOF.md` (HHK modular framework in the ROM under the
       OW-CPA + key-secrecy assumptions of SECURITY.md §6).

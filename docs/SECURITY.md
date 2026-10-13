@@ -351,9 +351,8 @@ Established, with evidence in this repository:
   `form_kernel`, product-isogeny oracle cost, honest-mask recovery
   (`cryptanalysis::kani4`; full dim-4 theta eval in `research/kani4_sage/`).
 * Costs of all known attacks under the stated models (§3, §5).
-* Correct, constant-time decapsulation (Mumford schedule; theta chain
-  available and cross-checked on synthetic kernels); hostile-input
-  behaviour (§7).
+* Correct, constant-time decapsulation (theta-coordinate chain; Mumford
+  retained for chain inspection); hostile-input behaviour (§7).
 * Author-written IND-CCA reduction for the FO transform (`docs/FO_PROOF.md`).
 
 Not established:

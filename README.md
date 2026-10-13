@@ -134,14 +134,12 @@ laptop (2026-10-12, rustc 1.93.1): Q3 keygen 1451 s, encaps 9.0 s, decaps
 0.28 s, decaps 7.5 s. Q5 compiles and its field arithmetic is tested
 (`tests/field.rs::fq5`); a full Q5 run has not been timed.
 
-A level-2 theta `(2^n,2^n)`-chain is implemented (`src/theta.rs`,
+Decapsulation uses a level-2 theta `(2^n,2^n)`-chain (`src/theta.rs`,
 `chain::decaps_chain_theta`), ported from Theta-Rust
-(Dartois–Maino–Pope–Robert; MIT, `LICENSE.theta-isogenies`). At Toy16 it
-matches Mumford `decaps_chain` up to isomorphism/factor swap and is about
-28× faster (`tests/theta_chain.rs`: ≈131 ms → ≈4.6 ms for e = 169). KEM
-decapsulation still uses the Mumford schedule until the theta images
-round-trip through FO identification; `inspect_chain` / near-miss stay
-on Mumford.
+(Dartois–Maino–Pope–Robert; MIT, `LICENSE.theta-isogenies`). At Toy16 the
+chain is about 28× faster than Mumford (`tests/theta_chain.rs`: ≈131 ms →
+≈4.6 ms for e = 169); full KEM decaps is ~18 ms. Mumford remains for
+`inspect_chain` / near-miss experiments.
 
 In the same run, the field layer measured as follows, in ns per operation.
 Multiplication is the best of 15 runs and inversion the mean of 200.
