@@ -310,6 +310,20 @@ Reading:
 quantum-query floor ≥ λ for the quantum-hardened sets, and the gate-count
 floor ≥ the AES reference at every MAXDEPTH for L1/L3/L5.
 
+### 5.3 Claim tiers (product language)
+
+Two different bars must not be conflated:
+
+| Tier | Definition | Sets | Forbidden claim |
+|---|---|---|---|
+| **A — NIST gates** | Gate floor ≥ AES-λ Grover reference at every MAXDEPTH | L1 / L3 / L5 as Cat 1 / 3 / 5 | “L1 has 2^128 quantum queries” |
+| **B — quantum queries** | Query floor ≥ λ against every known attack | L5 (=Q1), Q3, Q5 | Calling L1/L3 “quantum-hardened” |
+
+Oracle costing in §5.1 remains deliberately cheap for the attacker (2^8
+F_{p²} muls per (2,2)-step). The defender now uses a theta chain; that does
+**not** raise the attacker's oracle cost in this document — keep the margin
+until §8.1 Q3 is answered by reviewers. Tracking: `docs/ROADMAP.md`.
+
 ## 6. Assumptions
 
 1. **Eigen-CIST (decisional, message recovery).** Given (E_A, P, Q, E_C,

@@ -45,5 +45,11 @@ without requiring Sage.
 
 ## Status
 
-Driver stub: the Rust side is what CI runs. Fill in `attack.sage` against
-a local Theta_dim4 checkout when reproducing the full poly-time recovery.
+| Piece | Status |
+|---|---|
+| Rust cost-model scaffolding + CI | done (`cryptanalysis::kani4`) |
+| This driver API / README | done |
+| `attack.sage` body vs Theta_dim4 `Kani_endomorphism` | **open** — implement steps in `run_from_hex` |
+| Feed measured oracle cost into `security.rs` | open (after first successful Toy16 run) |
+
+Tracking: `docs/ROADMAP.md` §3, `docs/LITERATURE_DRILL.md` row L2.

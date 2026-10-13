@@ -804,6 +804,55 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         }
     }
 
+    /// Parallel key generation (variable time): run up to `jobs` independent
+    /// `keygen_attempt` loops on separate threads (each with its own `OsRng`).
+    /// The first success wins; others stop.  `jobs ≤ 1` is a single-threaded
+    /// attempt loop.  Speeds up rejection sampling at Q3/Q5 approximately
+    /// linearly in the number of cores until attempts contend on RAM.
+    pub fn keygen_with_jobs(jobs: usize) -> (PublicKey, SecretKey) {
+        let (pk, sk, _) = Self::keygen_with_jobs_trace(jobs);
+        (pk, sk)
+    }
+
+    /// Like [`keygen_with_jobs`], also returning the secret degree f.
+    pub fn keygen_with_jobs_trace(jobs: usize) -> (PublicKey, SecretKey, BigUint) {
+        use rand_core::OsRng;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::mpsc;
+        use std::sync::Arc;
+        use std::thread;
+
+        let jobs = jobs.max(1);
+        if jobs == 1 {
+            return Self::keygen_with_trace(&mut OsRng);
+        }
+        let done = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = mpsc::channel();
+        let mut handles = Vec::with_capacity(jobs);
+        for _ in 0..jobs {
+            let done = Arc::clone(&done);
+            let tx = tx.clone();
+            handles.push(thread::spawn(move || {
+                let mut rng = OsRng;
+                while !done.load(Ordering::Relaxed) {
+                    if let Some(kp) = Self::keygen_attempt(&mut rng) {
+                        if !done.swap(true, Ordering::SeqCst) {
+                            let _ = tx.send(kp);
+                        }
+                        return;
+                    }
+                }
+            }));
+        }
+        drop(tx);
+        let kp = rx.recv().expect("at least one keygen worker must succeed");
+        done.store(true, Ordering::SeqCst);
+        for h in handles {
+            let _ = h.join();
+        }
+        kp
+    }
+
     /// Deterministic encryption of a chosen kernel scalar s (mod 3^F3) under
     /// a public key: the trapdoor function itself, without the KEM wrapper.
     /// Public inputs only; used by the cryptanalysis module to confirm a
@@ -1082,6 +1131,14 @@ mod tests {
         use crate::drbg::Drbg;
         let mut rng = Drbg::for_vector("theta-kem-roundtrip", 0);
         let (pk, sk) = EigenSeta::<Toy16, 4>::keygen(&mut rng);
+        let (ct, ss) = EigenSeta::<Toy16, 4>::encaps(&pk, &mut rng).unwrap();
+        assert_eq!(EigenSeta::<Toy16, 4>::decaps(&sk, &ct), ss);
+    }
+
+    #[test]
+    fn parallel_keygen_jobs_toy16() {
+        let (pk, sk) = EigenSeta::<Toy16, 4>::keygen_with_jobs(2);
+        let mut rng = OsRng;
         let (ct, ss) = EigenSeta::<Toy16, 4>::encaps(&pk, &mut rng).unwrap();
         assert_eq!(EigenSeta::<Toy16, 4>::decaps(&sk, &ct), ss);
     }

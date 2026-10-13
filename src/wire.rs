@@ -71,6 +71,10 @@ impl SetId {
         SetId::ALL.iter().copied().find(|s| *s as u8 == b)
     }
     pub fn from_name(s: &str) -> Option<SetId> {
+        // Q1 is an alias for L5: same prime (quantum-hardened λ = 128).
+        if s.eq_ignore_ascii_case("Q1") {
+            return Some(SetId::L5);
+        }
         SetId::ALL
             .iter()
             .copied()
@@ -148,5 +152,7 @@ mod tests {
             assert_eq!(SetId::from_name(s.name()), Some(s));
             assert_eq!(SetId::from_u8(s as u8), Some(s));
         }
+        assert_eq!(SetId::from_name("Q1"), Some(SetId::L5));
+        assert_eq!(SetId::from_name("q1"), Some(SetId::L5));
     }
 }

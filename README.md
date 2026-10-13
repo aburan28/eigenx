@@ -30,13 +30,16 @@ What is in the box:
 ```
 cargo build --release --bin eigenx
 B=target/release/eigenx
-$B params                                   # table of parameter sets
-$B keygen  --set L1 --pk pk --sk sk         # ~30 s at L1
+$B params                                   # sets + claim tiers (see §2.1)
+# Post-quantum (Tier B: ≥ 2^λ quantum queries): L5 (=Q1), Q3, Q5
+$B keygen  --set L5 --pk pk --sk sk --jobs 8   # or Q3 / Q5; --jobs parallelises attempts
+$B encaps  --pk pk --ct ct --key k1
+$B decaps  --sk sk --ct ct --key k2 && cmp k1 k2
+# Classical-optimised (Tier A only): L1 / L3 — do NOT claim 2^λ quantum queries
+$B keygen  --set L1 --pk pk_l1 --sk sk_l1 --jobs 4
 $B encrypt --pk pk --in letter.txt --out letter.enc --aad "to: bob"
 $B decrypt --sk sk --in letter.enc --out letter.txt --aad "to: bob"
-$B encaps  --pk pk --ct ct --key k1         # KEM: fresh 32-byte key
-$B decaps  --sk sk --ct ct --key k2 && cmp k1 k2
-$B info letter.enc                          # kind, parameter set, sizes
+$B info letter.enc
 ```
 
 Files start with the magic `EIGX`, a version byte, an object kind and a
@@ -57,14 +60,14 @@ cryptographic RNG; the receiver supplies the same associated data:
 
 ```rust
 use eigen_seta::kem::EigenSeta;
-use eigen_seta::params::L1;
+use eigen_seta::params::L5; // Tier B Cat-1 (also classical Cat-5); or Q3/Q5
 use eigen_seta::pke::EigenSetaPke;
 use rand_core::OsRng;
 
 let mut rng = OsRng;
-let (pk, sk) = EigenSeta::<L1, 21>::keygen(&mut rng);
-let ct = EigenSetaPke::<L1, 21>::encrypt(&pk, b"hello", b"context", &mut rng).unwrap();
-let pt = EigenSetaPke::<L1, 21>::decrypt(&sk, &ct, b"context").unwrap();
+let (pk, sk) = EigenSeta::<L5, 42>::keygen(&mut rng);
+let ct = EigenSetaPke::<L5, 42>::encrypt(&pk, b"hello", b"context", &mut rng).unwrap();
+let pt = EigenSetaPke::<L5, 42>::decrypt(&sk, &ct, b"context").unwrap();
 assert_eq!(pt, b"hello");
 ```
 
@@ -103,12 +106,19 @@ byte for byte; the Q sets are new.
 Shared secret: 32 bytes. Public key and ciphertext are each 4 F_p²
 elements; the sizes above exclude the 8-byte file header.
 
-The L sets take d = 3^F3 ≈ 2^(2λ), which gives 2^λ classical cost but only
-about 2^(λ/2) quantum *queries* against the FESTA-type mask search (they do
-meet NIST's gate-count metric under MAXDEPTH; see `docs/SECURITY.md` §5).
-The Q sets take d ≥ 2^(4λ) so that every known attack costs at least 2^λ
-quantum queries. There is no Q1 because at λ = 128 the construction yields
-exactly the L5 prime: **L5 is the quantum-hardened level-1 set.**
+### 2.1 Two claim tiers (read this before naming a NIST category)
+
+| Tier | Metric | Sets that meet it | Do **not** claim |
+|---|---|---|---|
+| **A — NIST gates** | Quantum gate count ≥ AES-λ Grover under MAXDEPTH ∈ {2^40,2^64,2^96} | L1 → Cat 1, L3 → Cat 3, L5 → Cat 5 | That L1/L3 have ≥ 2^λ quantum *queries* |
+| **B — quantum queries** | Every known attack ≥ 2^λ quantum oracle queries | **L5** (= Q1), **Q3**, **Q5** | That L1/L3 are “quantum Cat-1/3” under this bar |
+
+Binding quantum attack: Grover on mask-guess + Kani ≈ 2^(λ/2) queries on the
+L sets (same class as FESTA). The Q sets take d ≥ 2^(4λ) so that square root
+lands at 2^λ. There is no separate Q1 prime: at λ = 128 the construction
+yields exactly L5. **Recommended PQ suite: L5, Q3, Q5.** Use L1/L3 only when
+you explicitly accept Tier A (gates) without Tier B (queries). Remaining
+work and review checklist: `docs/ROADMAP.md`.
 
 Wall time, one thread, measured in run `run-20261011T1813Z-bench` on an
 Intel Xeon at 2.80 GHz (shared cloud VM, rustc 1.97.0, release build). The
@@ -211,6 +221,8 @@ Multiplication is the best of 15 runs and inversion the mean of 200.
 | `docs/SECURITY.md` | Attack costs per parameter set, toy-scale attack experiments, quantum analysis, what is not established; numbered claims and open questions for reviewers |
 | `docs/FO_PROOF.md` | IND-CCA reduction for the FO transform (HHK, ROM) |
 | `docs/REVIEW.md` | For reviewers: how to reproduce every number in the analysis and where to put comments |
+| `docs/ROADMAP.md` | Remaining work for Tier A/B claims, review, kani4_sage, performance |
+| `docs/LITERATURE_DRILL.md` | Pass/fail template for open cryptanalysis questions |
 | `docs/PLAN.md` | The build plan this repository follows, with status |
 | `docs/RESEARCH_ENDRING_PKE_STRATEGY.md` | Design note: literature survey, scheme design, corrections |
 | `research/kani4_sage/` | Sage driver stub for full dim-4 Kani evaluation (Theta_dim4) |

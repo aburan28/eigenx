@@ -29,12 +29,16 @@ const USAGE: &str = "\
 eigenx: Eigen-Séta KEM / PKE command-line tool (research software)
 
   eigenx params
-  eigenx keygen  --set <Toy16|Toy32|L1|L3|L5|Q3|Q5> --pk FILE --sk FILE
+  eigenx keygen  --set <Toy16|Toy32|L1|L3|L5|Q1|Q3|Q5> --pk FILE --sk FILE [--jobs N]
   eigenx encaps  --pk FILE --ct FILE --key FILE
   eigenx decaps  --sk FILE --ct FILE --key FILE
   eigenx encrypt --pk FILE --in FILE --out FILE [--aad STRING]
   eigenx decrypt --sk FILE --in FILE --out FILE [--aad STRING]
   eigenx info    FILE
+
+  Q1 is an alias for L5 (quantum-hardened λ=128). Prefer L5/Q3/Q5 for PQ
+  (Tier B: ≥ 2^λ quantum queries). L1/L3 meet Tier A (NIST gates) only.
+  See docs/SECURITY.md §5.3 and docs/ROADMAP.md.
 ";
 
 type Res<T> = Result<T, String>;
@@ -87,13 +91,37 @@ fn load(path: &str, want: Kind) -> Res<(SetId, Vec<u8>)> {
 
 fn cmd_params() -> Res<()> {
     println!(
-        "{:<6} {:>6} {:>7} {:>5} {:>5} {:>4} {:>8} {:>7} {:>6} {:>6} {:>7}  quantum-hardened",
+        "{:<6} {:>6} {:>7} {:>5} {:>5} {:>4} {:>8} {:>7} {:>6} {:>6} {:>7}  {:<10} tier-B (q-queries)",
         "set", "lambda", "p_bits", "limbs", "E", "F3", "log2(d)", "f_bits", "pk_B", "ct_B", "sk_B",
+        "tier-A",
     );
     for id in SetId::ALL {
         let s = set_info(id);
+        let tier_a = match s.name {
+            "L1" => "Cat-1",
+            "L3" => "Cat-3",
+            "L5" => "Cat-5",
+            "Q3" => "Cat-3*",
+            "Q5" => "Cat-5*",
+            _ => "—",
+        };
+        // Tier B: ≥ 2^λ quantum queries. L5 is Q1 (λ=128 queries) and also
+        // classical Cat-5 (λ=256); Q3/Q5 are quantum-hardened at their λ.
+        let tier_b = if s.name == "L5" {
+            "Cat-1 as Q1"
+        } else if s.quantum_hardened {
+            match s.lambda {
+                192 => "Cat-3",
+                256 => "Cat-5",
+                _ => "yes",
+            }
+        } else if matches!(s.name, "L1" | "L3") {
+            "no (≈2^(λ/2))"
+        } else {
+            "—"
+        };
         println!(
-            "{:<6} {:>6} {:>7} {:>5} {:>5} {:>4} {:>8.1} {:>7} {:>6} {:>6} {:>7}  {}",
+            "{:<6} {:>6} {:>7} {:>5} {:>5} {:>4} {:>8.1} {:>7} {:>6} {:>6} {:>7}  {:<10} {}",
             s.name,
             s.lambda,
             s.p_bits,
@@ -105,9 +133,14 @@ fn cmd_params() -> Res<()> {
             s.pk_bytes,
             s.ct_bytes,
             s.sk_bytes,
-            if s.quantum_hardened { "yes" } else { "no" }
+            tier_a,
+            tier_b,
         );
     }
+    println!(
+        "\nTier A = NIST gate-count under MAXDEPTH. Tier B = ≥ 2^λ quantum queries.\n\
+         * Q3/Q5 also exceed Tier A references. Prefer L5/Q3/Q5 for PQ. See docs/SECURITY.md §5.3."
+    );
     Ok(())
 }
 
@@ -115,16 +148,26 @@ fn cmd_keygen(m: &HashMap<String, String>) -> Res<()> {
     let set_name = need(m, "set")?;
     let id = SetId::from_name(set_name).ok_or_else(|| format!("unknown set `{set_name}`"))?;
     let (pk_path, sk_path) = (need(m, "pk")?, need(m, "sk")?);
-    let mut rng = OsRng;
+    let jobs: usize = m
+        .get("jobs")
+        .map(|s| {
+            s.parse::<usize>()
+                .map_err(|_| "--jobs needs a positive integer".to_string())
+        })
+        .transpose()?
+        .unwrap_or(1);
+    if jobs == 0 {
+        return Err("--jobs must be ≥ 1".into());
+    }
     with_set!(id, P, N, {
-        let (pk, sk) = EigenSeta::<P, N>::keygen(&mut rng);
+        let (pk, sk) = EigenSeta::<P, N>::keygen_with_jobs(jobs);
         let mut skb = EigenSeta::<P, N>::sk_to_bytes(&sk);
         let out = wire::encode(Kind::SecretKey, id, &skb);
         skb.zeroize();
         write(sk_path, &out)?;
         write(pk_path, &wire::encode(Kind::PublicKey, id, &pk.bytes))?;
         eprintln!(
-            "{}: wrote public key ({} B payload) and secret key ({} B payload)",
+            "{}: wrote public key ({} B payload) and secret key ({} B payload) [jobs={jobs}]",
             <P as ParamSet<N>>::NAME,
             pk.bytes.len(),
             out.len() - wire::HEADER_LEN

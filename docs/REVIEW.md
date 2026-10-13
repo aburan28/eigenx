@@ -26,7 +26,20 @@ most want answered. Review can be at any of three depths:
 
 The question that matters most is not whether the numbers are computed
 correctly from the model but whether the model is missing an attack. §8 of
-the paper lists what we know we have not examined.
+the paper lists what we know we have not examined. Remaining engineering and
+research tasks are tracked in `docs/ROADMAP.md`; open literature rows are in
+`docs/LITERATURE_DRILL.md`.
+
+### Claim-tier checklist (please tick in the PR)
+
+Before accepting a “NIST category” sentence in any external write-up:
+
+- [ ] The sentence names **Tier A (gates)** or **Tier B (quantum queries)**
+      explicitly (`docs/SECURITY.md` §5.3).
+- [ ] L1 / L3 are never described as meeting Tier B.
+- [ ] PQ recommendations use **L5 / Q3 / Q5** (L5 = Q1).
+- [ ] Binding quantum attack identified as Grover on mask-guess + Kani
+      (claim C3 / C7).
 
 ## Reproducing the numbers
 

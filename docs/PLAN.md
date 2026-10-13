@@ -81,6 +81,12 @@ make that step easy to start.
 - [x] C2. CI: KATs, robustness tests, cryptanalysis tests at toy scale,
       security estimate table printed in the log.
 
+## Ongoing (PQ claims, review, performance)
+
+See **`docs/ROADMAP.md`**: two NIST claim tiers, PQ defaults L5/Q3/Q5,
+literature drill, kani4_sage, parallel keygen. That checklist is the
+source of truth for what still blocks “Tier B + external scrutiny”.
+
 ## Previously deferred (now done)
 
 - [x] Theta-coordinate dimension-2 `(2^n,2^n)`-chain (`src/theta.rs`,
