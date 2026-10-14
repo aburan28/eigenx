@@ -7,9 +7,17 @@ It follows the modular framework of Hofheinz–Hövelmanns–Kiltz (HHK,
 EUROCRYPT 2017 / ePrint 2015/917), specialised to the implicit-rejection
 transform used here.
 
-**Status.** Author-written. Not peer-reviewed. The reduction is standard; the
-novelty, if any, is only in naming the Eigen-Séta trapdoor assumptions and
-recording the concrete domain separations from the implementation.
+**Status.** Author-written. The checklist in §6 was checked against
+`src/kem.rs` (domain separation, odd masks, re-encryption, implicit
+rejection, fresh `z`). It has not been reviewed outside the project. The
+reduction is the standard HHK argument; the Eigen-Séta-specific content is
+the trapdoor assumptions and those domain separations.
+
+Correctness error: key generation self-tests one honest encapsulation, and
+`toy16_recovers_several_kernel_scalars` recovers seven kernel scalars
+(including 0 and d−1) at Toy16. That supports treating `δ_corr` as
+negligible on the keys we generate. It is not a proof for every `s` and
+every parameter set, so the theorem keeps the `q_D · δ_corr` term.
 
 ## 1. Syntax
 

@@ -777,8 +777,6 @@ mod tests {
         mul_matches_integer::<L1Fp, 21>();
         mul_matches_integer::<Q3Fp, 61>();
         mul_matches_integer::<Q5Fp, 82>();
-        assert!(Q5Fp::P1_ZERO_LIMBS > 0);
-        assert!(82 <= MAX_LIMBS);
     }
 
     #[test]

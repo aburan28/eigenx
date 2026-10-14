@@ -1142,4 +1142,31 @@ mod tests {
         let (ct, ss) = EigenSeta::<Toy16, 4>::encaps(&pk, &mut rng).unwrap();
         assert_eq!(EigenSeta::<Toy16, 4>::decaps(&sk, &ct), ss);
     }
+
+    /// Probe δ_corr: several kernel scalars, including 0 and d−1, round-trip
+    /// through the theta decapsulation path. Not a proof that δ_corr = 0.
+    #[test]
+    fn toy16_recovers_several_kernel_scalars() {
+        use crate::drbg::Drbg;
+        let mut rng = Drbg::for_vector("delta-corr-toy16", 0);
+        let (pk, sk) = EigenSeta::<Toy16, 4>::keygen(&mut rng);
+        let d = BigUint::from(3u32).pow(Toy16::F3 as u32);
+        let mut scalars = vec![
+            BigUint::from(0u32),
+            BigUint::from(1u32),
+            BigUint::from(2u32),
+            BigUint::from(7u32),
+            BigUint::from(1000u32),
+            &d - 1u32,
+        ];
+        scalars.push(d.clone() / 2u32);
+        for s in scalars {
+            let ct = EigenSeta::<Toy16, 4>::encrypt_scalar(&pk, &s).unwrap();
+            let got = EigenSeta::<Toy16, 4>::recover_s(&sk, &ct).expect("recover");
+            assert_eq!(EigenSeta::<Toy16, 4>::scalar_to_biguint(&got) % &d, s % &d);
+            let k1 = EigenSeta::<Toy16, 4>::decaps(&sk, &ct);
+            let k2 = EigenSeta::<Toy16, 4>::decaps(&sk, &ct);
+            assert_eq!(k1, k2);
+        }
+    }
 }

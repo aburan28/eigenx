@@ -148,7 +148,10 @@ pub fn estimate(s: &SetInfo) -> Vec<AttackCost> {
             quantum_queries_log2: Some(e_prime / 2.0),
             quantum_gates_log2: Some(grover_cols(e_prime, mask_oracle)),
             oracle_gates_log2: mask_oracle,
-            note: "guess masks mod 2^e', 2^2e' >= d; Grover halves the exponent",
+            note: "guess masks mod 2^e', 2^2e' >= d; Grover halves the exponent. \
+                   One Toy16 KaniEndoHalf (e=41, 216-bit p) measured 0.31s \
+                   (research/kani4_sage/TOY16_RUN.md); gate columns stay on the \
+                   cheaper chain_gates model, not that wall clock",
         },
         AttackCost {
             attack: Attack::DegreeSearch,

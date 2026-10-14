@@ -65,6 +65,33 @@ pub type CouplePoint<F> = (WPoint<F>, WPoint<F>);
 /// `EllipticProduct`.
 pub type EllipticProduct<F> = (WCurve<F>, WCurve<F>);
 
+/// Invert `n` field elements with one inversion. Zeros invert to zero.
+/// Constant time in the values (the length `n` is public).
+fn batch_invert<F: Field>(v: &mut [F]) {
+    let n = v.len();
+    if n == 0 {
+        return;
+    }
+    let mut nz = vec![F::one(); n];
+    let mut zero = vec![Choice::from(0u8); n];
+    for i in 0..n {
+        zero[i] = v[i].is_zero();
+        nz[i] = F::conditional_select(&v[i], &F::one(), zero[i]);
+    }
+    let mut prefix = vec![F::one(); n];
+    prefix[0] = nz[0];
+    for i in 1..n {
+        prefix[i] = prefix[i - 1] * nz[i];
+    }
+    let mut inv = prefix[n - 1].invert();
+    for i in (1..n).rev() {
+        let ii = inv * prefix[i - 1];
+        inv *= nz[i];
+        v[i] = F::conditional_select(&ii, &F::zero(), zero[i]);
+    }
+    v[0] = F::conditional_select(&inv, &F::zero(), zero[0]);
+}
+
 #[inline(always)]
 fn ep_add<F: Field>(
     e: &EllipticProduct<F>,
@@ -380,10 +407,9 @@ fn gluing_codomain<F: Field>(
     let t3v = zatbzytd[3 ^ z_idx];
     let t4v = xaxbycyd[3 ^ z_idx];
 
-    let i1 = t1v.invert();
-    let i2 = t2v.invert();
-    let i3 = t3v.invert();
-    let i4 = t4v.invert();
+    let mut invs = [t1v, t2v, t3v, t4v];
+    batch_invert(&mut invs);
+    let [i1, i2, i3, i4] = invs;
 
     let mut abcd = [F::zero(); 4];
     // XOR-index pattern matches the source (0^z_idx ≡ z_idx).
@@ -428,8 +454,9 @@ fn gluing_image<F: Field>(
 
     // Both inversions are computed unconditionally (inverting zero gives
     // zero) and the right one selected branch-free, matching the source.
-    let izb = zb.invert();
-    let itb = tb.invert();
+    let mut invs = [zb, tb];
+    batch_invert(&mut invs);
+    let [izb, itb] = invs;
     let lam = F::conditional_select(&(z * izb), &(tt * itb), z.is_zero());
 
     let xb = aybxctdz[1 ^ z_idx] * a_inv;

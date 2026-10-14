@@ -212,5 +212,26 @@ What this check does and does not show:
   separately. A production implementation should use fixed stack buffers.
 * **R7. Compiler and hardware.** See section 5 and the platform assumption in
   section 1.
-* **R8. Power, EM and faults** are not addressed. The FO re-encryption check
-  catches faults that corrupt the recovered s, but not faults that skip it.
+* **R8. Power, EM and faults.** See §7.
+
+## 7. Faults
+
+In scope for this note only as a **threat model**, not as implemented
+countermeasures.
+
+An attacker who can flip bits or skip instructions during decapsulation can:
+
+* corrupt the recovered scalar `s` — the FO re-encryption check
+  (`decaps_core`) then returns the implicit-rejection key, so the fault does
+  not yield the honest shared secret;
+* skip that comparison — then a wrong `s` can be accepted; this is the same
+  class of attack as on other FO KEMs (including FESTA) and is not prevented
+  here;
+* fault key generation into a weak `f` — keygen is assumed to run in a
+  trusted environment (`R1`).
+
+Masks are derived per ciphertext from `s` and are not reused
+(`SECURITY.md` §3.3), so a fault that reveals one ciphertext's masks does
+not reveal the next. No infective computation, no redundant chain, and no
+checksum over the secret scalars is implemented. Adding those would be a
+new design, not a parameter tweak.
