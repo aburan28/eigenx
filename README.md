@@ -257,6 +257,7 @@ cargo test --release -- --ignored          # Toy32 KEM round trip
 cargo run --release --example run -- L1 3  # keygen + 3 encaps/decaps at L1 (also Q3, Q5)
 cargo run --release --example pke_run -- L1 # encrypt/decrypt a message at L1
 cargo run --release --example security_estimate   # attack cost table for every set
+sh scripts/pq_roundtrip.sh L5 4             # Tier-B round trip (also Q3, Q5)
 cargo run --release --example cryptanalysis -- 3 4 # toy-scale attack report (keys, trials)
 cargo run --release --example bench_field  # F_p mul and inversion timings
 cargo run --release --example gen_params > src/params_generated.rs
