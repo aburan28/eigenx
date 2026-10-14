@@ -90,18 +90,50 @@ fn from_jac<F: Field>(p: &Jac<F>) -> WPoint<F> {
     WPoint::new(p.x * zi2, p.y * zi2 * zi)
 }
 
-/// [k]P for a public scalar.  Variable time.
-pub fn mul_vartime<F: Field>(e: &WCurve<F>, p: &WPoint<F>, k: &BigUint) -> WPoint<F> {
-    let pj = to_jac(p);
-    let mut r = Jac {
+fn jac_inf<F: Field>() -> Jac<F> {
+    Jac {
         x: F::one(),
         y: F::one(),
         z: F::zero(),
-    };
-    for i in (0..k.bits()).rev() {
-        r = jac_dbl(e, &r);
-        if k.bit(i) {
-            r = jac_add(e, &r, &pj);
+    }
+}
+
+/// [k]P for a public scalar.  Variable time.  Four-bit windows: k doublings
+/// and about k/4 additions, instead of k/2 additions.
+pub fn mul_vartime<F: Field>(e: &WCurve<F>, p: &WPoint<F>, k: &BigUint) -> WPoint<F> {
+    if bool::from(p.inf) || k.bits() == 0 {
+        return WPoint::infinity();
+    }
+    let pj = to_jac(p);
+    let mut tab = [pj; 16];
+    tab[0] = jac_inf();
+    tab[1] = pj;
+    tab[2] = jac_dbl(e, &pj);
+    for i in 3..16 {
+        tab[i] = jac_add(e, &tab[i - 1], &pj);
+    }
+    let bits = k.bits() as usize;
+    let nwin = bits.div_ceil(4);
+    let mut r = jac_inf();
+    let mut started = false;
+    for w in (0..nwin).rev() {
+        if started {
+            r = jac_dbl(e, &jac_dbl(e, &jac_dbl(e, &jac_dbl(e, &r))));
+        }
+        let mut nib = 0usize;
+        for b in 0..4 {
+            let i = w * 4 + b;
+            if i < bits && k.bit(i as u64) {
+                nib |= 1 << b;
+            }
+        }
+        if nib != 0 {
+            r = if started {
+                jac_add(e, &r, &tab[nib])
+            } else {
+                tab[nib]
+            };
+            started = true;
         }
     }
     from_jac(&r)

@@ -12,6 +12,20 @@
 use crate::ct::{Choice, ConditionallySelectable};
 use crate::field::Field;
 use crate::weier::{WCurve, WPoint};
+use smallvec::SmallVec;
+
+/// Heap-free for the fixed low degrees in the Richelot formulas (degree ≤ 7).
+type Poly<F> = SmallVec<[F; 8]>;
+
+fn poly_zero<F: Field>(n: usize) -> Poly<F> {
+    let mut r = Poly::new();
+    r.resize(n, F::zero());
+    r
+}
+
+fn poly_from<F: Field>(a: &[F]) -> Poly<F> {
+    SmallVec::from_slice(a)
+}
 
 /// Reduced divisor with monic u = x^2 + u1 x + u0, v = v1 x + v0.
 #[derive(Clone, Copy, Debug)]
@@ -34,8 +48,8 @@ impl<F: Field> ConditionallySelectable for Div<F> {
 }
 
 /// Polynomial helpers on little-endian coefficient vectors (fixed lengths).
-fn pmul<F: Field>(a: &[F], b: &[F]) -> Vec<F> {
-    let mut r = vec![F::zero(); a.len() + b.len() - 1];
+fn pmul<F: Field>(a: &[F], b: &[F]) -> Poly<F> {
+    let mut r = poly_zero(a.len() + b.len() - 1);
     for i in 0..a.len() {
         for j in 0..b.len() {
             r[i + j] += a[i] * b[j];
@@ -44,28 +58,39 @@ fn pmul<F: Field>(a: &[F], b: &[F]) -> Vec<F> {
     r
 }
 
-fn padd<F: Field>(a: &[F], b: &[F]) -> Vec<F> {
+fn padd<F: Field>(a: &[F], b: &[F]) -> Poly<F> {
     let n = a.len().max(b.len());
-    (0..n)
-        .map(|i| {
-            let x = if i < a.len() { a[i] } else { F::zero() };
-            let y = if i < b.len() { b[i] } else { F::zero() };
-            x + y
-        })
-        .collect()
+    let mut r = poly_zero(n);
+    for i in 0..n {
+        if i < a.len() {
+            r[i] += a[i];
+        }
+        if i < b.len() {
+            r[i] += b[i];
+        }
+    }
+    r
 }
 
-fn pscale<F: Field>(a: &[F], s: F) -> Vec<F> {
-    a.iter().map(|x| *x * s).collect()
+fn pscale<F: Field>(a: &[F], s: F) -> Poly<F> {
+    let mut r = poly_zero(a.len());
+    for (i, x) in a.iter().enumerate() {
+        r[i] = *x * s;
+    }
+    r
 }
 
-fn pneg<F: Field>(a: &[F]) -> Vec<F> {
-    a.iter().map(|x| -*x).collect()
+fn pneg<F: Field>(a: &[F]) -> Poly<F> {
+    let mut r = poly_zero(a.len());
+    for (i, x) in a.iter().enumerate() {
+        r[i] = -*x;
+    }
+    r
 }
 
 /// a mod (x^2 + m1 x + m0) -> (r1, r0).
 fn rem_quad<F: Field>(a: &[F], m1: F, m0: F) -> (F, F) {
-    let mut c: Vec<F> = a.to_vec();
+    let mut c: Poly<F> = poly_from(a);
     let mut k = c.len();
     while k > 2 {
         k -= 1;
@@ -79,11 +104,11 @@ fn rem_quad<F: Field>(a: &[F], m1: F, m0: F) -> (F, F) {
 }
 
 /// Quotient of a by the monic polynomial m (exact or not; remainder dropped).
-fn quo_monic<F: Field>(a: &[F], m: &[F]) -> Vec<F> {
+fn quo_monic<F: Field>(a: &[F], m: &[F]) -> Poly<F> {
     let dm = m.len() - 1;
     let da = a.len() - 1;
-    let mut c: Vec<F> = a.to_vec();
-    let mut q = vec![F::zero(); da - dm + 1];
+    let mut c: Poly<F> = poly_from(a);
+    let mut q = poly_zero(da - dm + 1);
     for k in (0..=(da - dm)).rev() {
         let t = c[k + dm];
         q[k] = t;
@@ -96,7 +121,7 @@ fn quo_monic<F: Field>(a: &[F], m: &[F]) -> Vec<F> {
 
 /// a mod m for monic m (deg m = 4): returns 4 coefficients.
 fn rem_monic4<F: Field>(a: &[F], m: &[F; 5]) -> [F; 4] {
-    let mut c: Vec<F> = a.to_vec();
+    let mut c: Poly<F> = poly_from(a);
     while c.len() < 5 {
         c.push(F::zero());
     }
@@ -349,10 +374,10 @@ impl<F: Field> Glue<F> {
 pub struct Richelot<F: Field> {
     g1: [F; 3],
     g2: [F; 3],
-    h1: Vec<F>,
-    h11: Vec<F>,
-    h12: Vec<F>,
-    h22: Vec<F>,
+    h1: Poly<F>,
+    h11: Poly<F>,
+    h12: Poly<F>,
+    h22: Poly<F>,
     pub hnew: [F; 7],
 }
 
@@ -413,7 +438,13 @@ impl<F: Field> Richelot<F> {
         let (g1, g2, g3) = kernel_quadratics(h, d1, d2);
         let delta = [g1, g2, g3];
         let dinv = inv3x3(&delta);
-        let mk = |col: usize| vec![-dinv[2][col], dinv[1][col].double(), -dinv[0][col]];
+        let mk = |col: usize| {
+            let mut h = poly_zero(3);
+            h[0] = -dinv[2][col];
+            h[1] = dinv[1][col].double();
+            h[2] = -dinv[0][col];
+            h
+        };
         let h1 = mk(0);
         let h2 = mk(1);
         let h3 = mk(2);
@@ -499,8 +530,8 @@ pub struct Split<F: Field> {
     a: F,
     b: F,
     d: F,
-    p1: Vec<F>,
-    p2: Vec<F>,
+    p1: Poly<F>,
+    p2: Poly<F>,
     k1: F,
     k2: F,
     pub e1: WCurve<F>,
@@ -717,10 +748,10 @@ impl<F: Field> Richelot<F> {
     pub fn map_batch(&self, ds: &[Div<F>]) -> Vec<Div<F>> {
         let two = F::from_i64(2);
         struct S1<F> {
-            px: Vec<F>,
+            px: Poly<F>,
             py2: F,
-            py1: Vec<F>,
-            py0: Vec<F>,
+            py1: Poly<F>,
+            py0: Poly<F>,
         }
         let mut s1 = Vec::with_capacity(ds.len());
         let mut lcs = Vec::with_capacity(ds.len());
