@@ -28,7 +28,7 @@ Still open outside this repository:
 | Classical-optimized suite (L1, L3) with quantum caveat | [x] README |
 | Example CLI snippets defaulting PQ examples to L5 | [x] README |
 | CI still exercises L1 (speed) plus cost-model assertions for Q floors | [x] existing CI |
-| Timed Tier-B round trip | [x] `scripts/pq_roundtrip.sh` (Q5 is a long run; record the log when it finishes) |
+| Timed Tier-B round trip | [x] Q5: keygen 9825 s (8 jobs), encaps 93 s, decaps 214 s (`research/q5_roundtrip.md`) |
 | PQ entry point refusing L1/L3 | [x] `scripts/pq_roundtrip.sh` |
 
 ## 3. External review + kani4_sage + level-structure literature
