@@ -1,4 +1,4 @@
-//! dudect-style timing test of the secret phase of decapsulation (Toy16).
+//! dudect-style timing test of the secret phase of decapsulation (L1).
 //!
 //! One key.  Class 0 = one fixed ciphertext, class 1 = a pool of fresh
 //! ciphertexts (half of them FO-rejected: made for another key).  Classes are
@@ -9,12 +9,12 @@
 //!
 //!   cargo run --release --example dudect_decaps -- [samples_per_class]
 use eigen_seta::kem::{Ciphertext, DecapsPrep, EigenSeta, SecretKey};
-use eigen_seta::params::{Toy16, Toy16Fp};
+use eigen_seta::params::{L1, L1Fp};
 use rand_core::{OsRng, RngCore};
 use std::time::Instant;
 
-type K = EigenSeta<Toy16, 4>;
-type Prep = DecapsPrep<eigen_seta::fp2::Fp2<Toy16Fp, 4>>;
+type K = EigenSeta<L1, 21>;
+type Prep = DecapsPrep<eigen_seta::fp2::Fp2<L1Fp, 21>>;
 
 #[inline(never)]
 fn timed(sk: &SecretKey, prep: &Prep, ct: &Ciphertext) -> u64 {

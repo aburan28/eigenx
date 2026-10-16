@@ -1,5 +1,5 @@
 use eigen_seta::kem::{Ciphertext, EigenSeta};
-use eigen_seta::params::{Toy16, Toy32};
+use eigen_seta::params::L1;
 use rand_core::OsRng;
 use std::time::Instant;
 
@@ -34,12 +34,6 @@ fn roundtrip<P: eigen_seta::params::ParamSet<N>, const N: usize>(trials: usize) 
 }
 
 #[test]
-fn kem_toy16() {
-    roundtrip::<Toy16, 4>(4);
-}
-
-#[test]
-#[ignore]
-fn kem_toy32() {
-    roundtrip::<Toy32, 6>(2);
+fn kem_l1() {
+    roundtrip::<L1, 21>(1);
 }

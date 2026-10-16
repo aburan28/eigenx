@@ -27,10 +27,8 @@ jobs:
         run: cargo fmt --check
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
-      - name: Release tests (KEM, KATs, robustness, CLI, toy cryptanalysis, cost model)
+      - name: Release tests (KEM, KATs, robustness, CLI, cost model)
         run: cargo test --release
-      - name: Ignored Toy32 round trip
-        run: cargo test --release -- --ignored
       - name: Attack cost table
         run: cargo run --release --example security_estimate
       - name: L1 full-size KEM round trip

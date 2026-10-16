@@ -16,14 +16,30 @@ most want answered. Review can be at any of three depths:
    `src/sets.rs` (the parameter table the model reads from).
 3. **Paper + experiments.** Also read `src/cryptanalysis/` (`degree.rs`:
    key from degree and the near-miss experiment; `mitm3.rs`: the
-   meet-in-the-middle; `checks.rs`: structural key checks) and
-   `src/chain.rs::inspect_chain` (the per-step chain diagnostics the
-   near-miss experiment relies on). The scheme itself is `src/kem.rs`; its
-   design note is `docs/RESEARCH_ENDRING_PKE_STRATEGY.md`.
+   meet-in-the-middle; `kani4.rs`: mask-guess + Robert/Kani scaffolding;
+   `checks.rs`: structural key checks), `src/theta.rs` / 
+   `chain::decaps_chain_theta`, and `src/chain.rs::inspect_chain` (the
+   per-step chain diagnostics the near-miss experiment relies on). The
+   scheme itself is `src/kem.rs`; its design note is
+   `docs/RESEARCH_ENDRING_PKE_STRATEGY.md`; the FO reduction is
+   `docs/FO_PROOF.md`.
 
 The question that matters most is not whether the numbers are computed
 correctly from the model but whether the model is missing an attack. §8 of
-the paper lists what we know we have not examined.
+the paper lists what we know we have not examined. Remaining engineering and
+research tasks are tracked in `docs/ROADMAP.md`; open literature rows are in
+`docs/LITERATURE_DRILL.md`.
+
+### Claim-tier checklist (please tick in the PR)
+
+Before accepting a “NIST category” sentence in any external write-up:
+
+- [ ] The sentence names **Tier A (gates)** or **Tier B (quantum queries)**
+      explicitly (`docs/SECURITY.md` §5.3).
+- [ ] L1 / L3 are never described as meeting Tier B.
+- [ ] PQ recommendations use **L5 / Q3 / Q5** (L5 = Q1).
+- [ ] Binding quantum attack identified as Grover on mask-guess + Kani
+      (claim C3 / C7).
 
 ## Reproducing the numbers
 
@@ -33,9 +49,9 @@ that applies. All timings below are one core of an Apple laptop.
 
 | What | Command | Expect | Time |
 |---|---|---|---|
-| Whole test suite (KEM, KATs, hostile inputs, CLI, toy attacks, cost-model assertions) | `cargo test --release` | all green; `tests/security.rs` prints the attack table and the MAXDEPTH comparison | ≈5 min + build |
+| Whole test suite (KEM, KATs, hostile inputs, CLI, cost-model assertions) | `cargo test --release` | all green; `tests/security.rs` prints the attack table and the MAXDEPTH comparison | ≈5 min + build |
 | Attack cost table (paper §3, §5.2) | `cargo run --release --example security_estimate` | the table in §5.2, to one decimal | <1 s |
-| Toy-scale attack report (paper §4) | `cargo run --release --example cryptanalysis -- 3 4` | `structural checks 3/3, key-from-degree 3/3, MITM 3/3`; near-miss table with `decaps_ok`, `early_split`, `final_split` all 0 for every k and 6/6 for the true f | ≈4 min |
+| FO IND-CCA writeup | read `docs/FO_PROOF.md` | HHK reduction under OW-CPA + key secrecy + δ_corr | — |
 | Parameter regeneration (paper §2, C9) | `cargo run --release --example gen_params > /tmp/p.rs && diff /tmp/p.rs src/params_generated.rs` | no output from `diff` | ≈10 min |
 | L1 round trip from the CLI | see the README's first code block | shared secrets and plaintext match | keygen 30 s, decaps 8 s |
 | Q3 round trip from the CLI | same with `--set Q3` | same | keygen 25 min, decaps 9 min |
@@ -69,7 +85,7 @@ still useful; please leave them.
 
 A finding that changes a cost becomes a row (or a changed formula) in
 `src/security.rs`, with the source cited in the note string and in
-`docs/SECURITY.md` §9. A finding that can be run at toy scale becomes a
+`docs/SECURITY.md` §9. A finding that changes an attack becomes a
 function in `src/cryptanalysis/` and a test. A finding that breaks a
 parameter set makes `tests/security.rs` fail until the set is regenerated
 or withdrawn. The paper's revision number and commit hash at the top are

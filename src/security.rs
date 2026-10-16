@@ -1,8 +1,6 @@
 //! Cost model for the known attacks on Eigen-Séta, evaluated per parameter
 //! set.  Everything here is arithmetic on the public parameters; the
-//! formulas and their justification are in `docs/SECURITY.md`, which also
-//! records which of them have been checked experimentally at toy scale
-//! (see `cryptanalysis`).
+//! formulas and their justification are in `docs/SECURITY.md`.
 //!
 //! Costs are reported as log2 of (a) classical operations, (b) quantum
 //! oracle queries for the best known quantum algorithm, and (c) quantum
@@ -148,7 +146,8 @@ pub fn estimate(s: &SetInfo) -> Vec<AttackCost> {
             quantum_queries_log2: Some(e_prime / 2.0),
             quantum_gates_log2: Some(grover_cols(e_prime, mask_oracle)),
             oracle_gates_log2: mask_oracle,
-            note: "guess masks mod 2^e', 2^2e' >= d; Grover halves the exponent",
+            note: "guess masks mod 2^e', 2^2e' >= d; Grover halves the exponent. \
+                   Gate columns use the chain_gates model",
         },
         AttackCost {
             attack: Attack::DegreeSearch,

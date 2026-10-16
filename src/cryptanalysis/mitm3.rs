@@ -10,9 +10,8 @@
 //! the result is confirmed by re-encrypting s, which the attacker can do
 //! because the masks are derived from s and the public key.
 //!
-//! This module exists to measure the attack, not to speed it up: at Toy16
-//! (F3 = 21) it finishes in seconds; at L1 (F3 = 162) the same code would
-//! need 3^81 ≈ 2^128 steps.
+//! This module exists to measure the attack, not to speed it up. At L1
+//! (F3 = 162) it needs 3^81 ≈ 2^128 steps.
 
 use crate::cm::mul_vartime;
 use crate::field::Field;

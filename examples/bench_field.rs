@@ -32,8 +32,6 @@ fn bench<C: FpConfig<N>, const N: usize>() {
 }
 
 fn main() {
-    bench::<Toy16Fp, 4>();
-    bench::<Toy32Fp, 6>();
     bench::<L1Fp, 21>();
     bench::<L3Fp, 32>();
     bench::<L5Fp, 42>();

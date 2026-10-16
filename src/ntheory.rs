@@ -19,8 +19,12 @@ const SMALL_PRIMES: [u32; 54] = [
     197, 199, 211, 223, 227, 229, 233, 239, 241, 251,
 ];
 
-/// Miller–Rabin with deterministic small bases plus `extra` random bases.
-pub fn is_probable_prime<R: RngCore>(n: &BigUint, rng: &mut R, extra: usize) -> bool {
+/// Fixed Miller–Rabin bases for nothing-up-my-sleeve primes. No RNG: every
+/// candidate is accepted or rejected by the same public test (trial division
+/// by the first primes, then these bases). See `docs/NUMS.md`.
+pub const NUMS_MR_BASES: [u32; 12] = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37];
+
+fn miller_rabin(n: &BigUint, bases: &[BigUint]) -> bool {
     let two = BigUint::from(2u32);
     if *n < two {
         return false;
@@ -37,14 +41,10 @@ pub fn is_probable_prime<R: RngCore>(n: &BigUint, rng: &mut R, extra: usize) -> 
     let nm1 = n - 1u32;
     let s = nm1.trailing_zeros().unwrap_or(0);
     let d = &nm1 >> s;
-    let mut bases: Vec<BigUint> = [2u32, 3, 5, 7, 11, 13, 17]
-        .iter()
-        .map(|&b| BigUint::from(b))
-        .collect();
-    for _ in 0..extra {
-        bases.push(random_below(rng, &(n - 3u32)) + 2u32);
-    }
     'outer: for a in bases {
+        if a >= n {
+            continue;
+        }
         let mut x = a.modpow(&d, n);
         if x.is_one() || x == nm1 {
             continue;
@@ -58,6 +58,23 @@ pub fn is_probable_prime<R: RngCore>(n: &BigUint, rng: &mut R, extra: usize) -> 
         return false;
     }
     true
+}
+
+/// Nothing-up-my-sleeve primality: [`NUMS_MR_BASES`] only.
+pub fn is_nums_prime(n: &BigUint) -> bool {
+    let bases: Vec<BigUint> = NUMS_MR_BASES.iter().copied().map(BigUint::from).collect();
+    miller_rabin(n, &bases)
+}
+
+/// Miller–Rabin with the NUMS bases plus `extra` random bases.
+pub fn is_probable_prime<R: RngCore>(n: &BigUint, rng: &mut R, extra: usize) -> bool {
+    let mut bases: Vec<BigUint> = NUMS_MR_BASES.iter().copied().map(BigUint::from).collect();
+    if *n > BigUint::from(3u32) {
+        for _ in 0..extra {
+            bases.push(random_below(rng, &(n - 3u32)) + 2u32);
+        }
+    }
+    miller_rabin(n, &bases)
 }
 
 /// sqrt(a) mod prime q (Tonelli–Shanks); None if a is a non-residue.
@@ -141,6 +158,8 @@ pub fn two_squares<R: RngCore>(
     trial_bound: u32,
 ) -> Option<(BigUint, BigUint)> {
     let mut rest = m.clone();
+    // Little-endian limbs, scanned from the top for `n % q` without a heap division.
+    let mut le = rest.to_u64_digits();
     // Gaussian integer accumulator (a + b i)
     let mut acc = (BigInt::one(), BigInt::zero());
     let gmul = |x: &(BigInt, BigInt), y: &(BigInt, BigInt)| {
@@ -148,10 +167,11 @@ pub fn two_squares<R: RngCore>(
     };
     let mut q = 2u32;
     while q <= trial_bound {
-        let qb = BigUint::from(q);
         let mut e = 0;
-        while (&rest % &qb).is_zero() {
+        while !le.is_empty() && rem_u64(&le, q as u64) == 0 {
+            let qb = BigUint::from(q);
             rest /= &qb;
+            le = rest.to_u64_digits();
             e += 1;
         }
         if e > 0 {
@@ -166,7 +186,7 @@ pub fn two_squares<R: RngCore>(
                 let s = BigInt::from(q).pow(e / 2);
                 acc = (&acc.0 * &s, &acc.1 * &s);
             } else {
-                let (x, y) = cornacchia(1, &qb, rng)?;
+                let (x, y) = cornacchia(1, &BigUint::from(q), rng)?;
                 let g = (
                     BigInt::from_biguint(Sign::Plus, x),
                     BigInt::from_biguint(Sign::Plus, y),
@@ -195,6 +215,16 @@ pub fn two_squares<R: RngCore>(
         acc.0.abs().to_biguint().unwrap(),
         acc.1.abs().to_biguint().unwrap(),
     ))
+}
+
+/// `le` is little-endian base 2^64. Returns `n % q` for `q > 0`.
+fn rem_u64(le: &[u64], q: u64) -> u64 {
+    let q = q as u128;
+    let mut r = 0u128;
+    for &d in le.iter().rev() {
+        r = ((r << 64) | d as u128) % q;
+    }
+    r as u64
 }
 
 /// s with s^2 = a mod 2^k for a = 1 mod 8.

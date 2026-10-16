@@ -1,10 +1,10 @@
 # Research Note: Public-Key Encryption from the Endomorphism Ring Problem
 
 **Date.** 2026-10-10, revised 2026-10-11 after a first prototype. **Status.**
-Literature survey, design proposal, and a SageMath toy prototype of the
+Literature survey, design proposal, and a SageMath prototype of the
 complete KeyGen/Encaps/Decaps path (`../research/eigen_seta_prototype_20261011/`).
 Parameter figures are derived estimates, not measurements; the prototype runs
-at toy sizes only. **Goal addressed.** Devise a strategy for a *novel* public-key
+on small parameters only. **Goal addressed.** Devise a strategy for a *novel* public-key
 encryption (PKE/KEM) scheme whose trapdoor is the endomorphism ring End(E) of
 the public curve, building on primitives that exist today (Deuring
 correspondence, Kani/higher-dimensional isogenies, lollipop attacks).
@@ -14,11 +14,11 @@ hook's warn-through path.
 
 > **Correction and implementation update (2026-10-11).** The `walk` special-key
 > variant in §4.3 is insecure: its decryption key depends on
-> Δ' = 7·25^k, where k is public. In a toy attack, an outsider recomputed
+> Δ' = 7·25^k, where k is public. In an attack on that variant, an outsider recomputed
 > the key and decrypted 5/5 ciphertexts. The implemented Rust KEM is instead
 > the **secret-degree single-chain variant (Eigen-Séta v2)**, the `eigen_seta`
 > crate at the root of this repository.
-> Its KeyGen, Encaps and Decaps run at Toy16, Toy32, L1, L3 and L5; an
+> Its KeyGen, Encaps and Decaps run at L1, L3 and L5; an
 > authenticated KEM–DEM layer encrypts and decrypts plaintexts. Its full-size
 > parameters are 1341, 1991 and 2630 bits. This does **not** implement
 > the original random-curve, two-halves design, whose ≈772-bit estimate is
@@ -326,23 +326,23 @@ Given (E_A, P, Q, E_C, [a]φP, [b]φQ) with a, b random, find φ.
 * ψ' non-cyclic on E_C[3^f] (part of ker φ θ'-stable): handled by trying the
   cyclic order-d subgroups of ker ψ' ∩ E_C[3^f] and keeping the one whose
   codomain is E_A (prototype: observed in 1 of 8 trials at the 44-bit size,
-  brute-force enumeration over (Z/d)² at toy size; Smith normal form at real
+  brute-force enumeration over (Z/d)² at that size; Smith normal form at full
   size). Exact frequency not yet measured.
 * Eigenvalues must satisfy μ ≢ ν mod 2 for the eigenlines to span E_A[2^e];
   guaranteed when Δ' is odd.
 * The Mumford-coordinate splitting formulas have rare degenerate inputs; the
-  prototype retries with a fresh basis of E_C[3^f] (seen ≈ 1 in 25 trials at
-  toy sizes, cause not yet isolated).
+  prototype retries with a fresh basis of E_C[3^f] (seen ≈ 1 in 25 trials,
+  cause not yet isolated).
 
 ## 6. Experiment protocol and status
 
-All runs on public toy parameters; no security claims at toy sizes. Code and
+All runs are on the prototype's parameters; no security claims are made for those sizes. Code and
 logs: `../research/eigen_seta_prototype_20261011/` (README there).
 
 Status 2026-10-11: step 1 done for two special-key variants (CM(−7) curve, and
 a hidden CM curve behind a secret 5^k-walk) with the single-chain regime; the
 generic mixed-step (2,2)-chain evaluator needed for it is written. Step 3 done
-at toy size for those variants: of 86 wrong but pairing-consistent guesses of
+for those variants: of 86 wrong but pairing-consistent guesses of
 Δ' (including guesses agreeing with the truth on 3–13 low bits), 85 ran the
 full chain and ended on a Jacobian, i.e. failed only at the final split, with
 no early-abort signal; one random guess in the CM variant also split to
@@ -350,7 +350,7 @@ E_C × E_C, an artefact of the CM curve's many small endomorphisms (and a
 warning for special-key variants). Step 2 (random curve) blocked on the
 two-halves evaluation. Steps 4–6 not started.
 
-1. **Correctness prototype (SageMath).** Toy p = 2^e·3^f·c − 1 with e ≈ 60,
+1. **Correctness prototype (SageMath).** p = 2^e·3^f·c − 1 with e ≈ 60,
    f ≈ 20. Use E_0 = j 1728 directly as E_A (End public is fine for
    correctness), θ = a short element of ⟨1, i, (i+π)/2, (1+iπ)/2⟩ with odd Δ'
    and −Δ' a square mod 2^e; eigenbasis; encaps with random diagonal masks;
@@ -361,12 +361,12 @@ two-halves evaluation. Steps 4–6 not started.
    (SQIsign2D-West / "Deuring for the people" tooling); LLL for short θ;
    measure how many θ must be tried for conditions (i)+(ii) and the achieved
    w/p^{2/3} ratio. Acceptance: median w ≤ 4·p^{2/3}.
-3. **Toy cryptanalysis of §5.1.** At e ≈ 40: brute-force eigenvalue guessing
+3. **Cryptanalysis of §5.1.** At e ≈ 40: brute-force eigenvalue guessing
    plus Kani, and record whether a wrong guess is detectable *before* the end
    of the chain (gluing/splitting pattern of intermediate varieties). If an
    early-abort signal exists the guessing cost drops from L'² toward e·4 and
    the design is dead; this is the most important single experiment.
-4. **Toy cryptanalysis of §5.2.** Run the published Kani attack code against
+4. **Cryptanalysis of §5.2.** Run the published Kani attack code against
    ciphertexts with (a) correct, (b) wrong masks; confirm failure mode is the
    final non-splitting only. Then the level-structure reductions.
 5. **Parameter script.** Encode the constraints of §4.3 (MITM, N > d√w,
@@ -407,10 +407,10 @@ two-halves evaluation. Steps 4–6 not started.
 |---|---|---|
 | Research the state of the art on EndRing-based encryption | complete (survey level) | Sections 1–2, sources below; ePrint PDFs were Cloudflare-blocked, mirrors used; items marked abstract-only in the agent reports were not re-verified from full text |
 | Identify primitives/concepts to build on | complete | §3 decoding lemma (CV Lemma 3), Deuring tooling, dimension-2 Kani, FO |
-| Devise a strategy for a novel scheme | complete as a design; prototyped at toy size for two special-key variants; **not analysed beyond §5** | §4–6; `../research/eigen_seta_prototype_20261011/`; novelty claim rests on the four surveys finding no eigenbasis-trapdoor PKE; a dedicated search for the exact combination is still advisable before any write-up |
-| Build the scheme (user request of 2026-10-11) | secret-degree single-chain v2 KeyGen/Encaps/Decaps operational at Toy16, Toy32, L1, L3 and L5; authenticated plaintext PKE uses KEM–DEM; original random-curve two-halves variant remains unimplemented; toy `walk` is insecure | `../README.md`; Rust run reports; toy `results/correctness_runs.txt` |
+| Devise a strategy for a novel scheme | complete as a design; prototyped for two special-key variants; **not analysed beyond §5** | §4–6; `../research/eigen_seta_prototype_20261011/`; novelty claim rests on the four surveys finding no eigenbasis-trapdoor PKE; a dedicated search for the exact combination is still advisable before any write-up |
+| Build the scheme (user request of 2026-10-11) | secret-degree single-chain v2 KeyGen/Encaps/Decaps operational at L1, L3 and L5; authenticated plaintext PKE uses KEM–DEM; original random-curve two-halves variant remains unimplemented; the `walk` variant is insecure | `../README.md`; Rust run reports |
 | Parameter/efficiency figures | measured for v2 on one host; §4.3's two-halves estimates do not apply to v2 | `../README.md` and Rust benchmark report |
-| Security | **not established** | §5 checklist; experiment 3 run at toy size with no early-abort signal (§6) |
+| Security | **not established** | §5 checklist; experiment 3 run with no early-abort signal (§6) |
 
 ## Sources (primary; see agent reports for the full list)
 

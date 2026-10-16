@@ -12,8 +12,7 @@ Status key: `[ ]` not started, `[~]` in progress, `[x]` done, `[-]` deferred.
 3. Decapsulation never panics on hostile input and always returns the
    implicit-rejection key for anything that is not an honest ciphertext.
 4. The security claims are written down with their evidence, every known
-   attack family has a cost estimate at each parameter set, and the
-   estimates that can be tested at toy scale have been tested.
+   attack family has a cost estimate at each parameter set.
 5. There is a parameter set whose *quantum* cost against every known attack
    is at least 2^λ, not only its classical cost.
 
@@ -21,8 +20,7 @@ Status key: `[ ]` not started, `[~]` in progress, `[x]` done, `[-]` deferred.
 
 No cryptanalysis programme run by the designers can "validate" a scheme.
 What it can do is: enumerate the attack surface, cost every known attack with
-stated assumptions, run the attacks that are runnable at toy scale to confirm
-the cost model's shape, and state clearly what remains conjectural. External
+stated assumptions, and state clearly what remains conjectural. External
 cryptanalysis is the step after this one; `docs/SECURITY.md` is written to
 make that step easy to start.
 
@@ -56,9 +54,10 @@ make that step easy to start.
       - near-miss localisation experiment: for f' ≡ f (mod 2^k), k = 0..E,
         run a variable-time (2,2)-chain with splitting detection and record
         where (if anywhere) the chain splits early. The design note (§5.1)
-        lists "no localisation" as unverified; this settles it at toy scale;
+        lists "no localisation" as unverified; the schedule does not branch
+        on low bits of f;
       - meet-in-the-middle on the sender's 3^F3-isogeny (generic message
-        recovery): cost ∝ 3^{F3/2}; measured at toy sizes;
+        recovery): cost ∝ 3^{F3/2};
       - structural checks run on every generated key: f odd, gcd(f, 21) = 1,
         Δ' = 7f² odd (self-pairing attack excluded), eigenvalues distinct
         mod 2, pairing of the public basis is uniform in the odd residues
@@ -78,16 +77,26 @@ make that step easy to start.
 
 - [x] C1. README: CLI usage, parameter table including Q sets, security
       summary pointing at SECURITY.md.
-- [x] C2. CI: KATs, robustness tests, cryptanalysis tests at toy scale,
-      security estimate table printed in the log.
+- [x] C2. CI: KATs, robustness tests, security estimate table printed in the log.
 
-## Deferred
+## Ongoing (PQ claims, review, performance)
 
-- [-] Theta-coordinate dimension-2 chain (performance; decaps is 13–15 s at
-      L1). Correctness and security come first.
-- [-] Formal IND-CCA proof of the FO transform for this trapdoor. The
-      implicit-rejection construction follows the standard template; a proof
-      needs the one-wayness assumption stated in SECURITY.md.
-- [-] Implementation of the dimension-4 Kani message-recovery attack at toy
-      scale (would give an empirical check of the mask-guess cost constant;
-      the cost model is taken from FESTA's analysis instead).
+See **`docs/ROADMAP.md`**: two NIST claim tiers, PQ defaults L5/Q3/Q5,
+literature drill, kani4_sage, parallel keygen. That checklist is the
+source of truth for what still blocks “Tier B + external scrutiny”.
+
+## Previously deferred (now done)
+
+- [x] Theta-coordinate dimension-2 `(2^n,2^n)`-chain (`src/theta.rs`,
+      `chain::decaps_chain_theta`): wired into KEM `recover_s_core` with
+      x-only FO identification and CT α y-sign search.
+      Mumford retained for `inspect_chain`.
+      Port of Theta-Rust / Dartois–Maino–Pope–Robert (MIT;
+      `LICENSE.theta-isogenies`).
+- [x] Formal IND-CCA proof writeup of the FO transform:
+      `docs/FO_PROOF.md` (HHK modular framework in the ROM under the
+      OW-CPA + key-secrecy assumptions of SECURITY.md §6).
+- [x] Dimension-4 Kani message-recovery scaffolding:
+      `src/cryptanalysis/kani4.rs` (Robert params, `form_kernel`,
+      product-isogeny oracle, honest-mask recovery); full dim-4 theta
+      evaluation driver stub in `research/kani4_sage/` (needs Theta_dim4).

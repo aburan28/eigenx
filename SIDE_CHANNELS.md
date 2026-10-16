@@ -99,7 +99,7 @@ re-encryption check.
 
 **Results.** Run `run-20261011T1827Z-sidechannel`, built from commit
 19c641d12 with rustc 1.97.0 in release mode with debuginfo, on x86-64 with
-glibc malloc. Toy16 parameters, 4 key seeds, each with two valid
+glibc malloc. L1 parameters, 4 key seeds, each with two valid
 ciphertexts and one foreign ciphertext. "Non-allocator" is the total minus
 the glibc allocator and `mem*` routines. Records are in
 `research/eigen_seta_rust_20261011/reports/run-20261011T1827Z-sidechannel/records/`.
@@ -136,7 +136,7 @@ The source had no branch at all: only a check of the compiled code can
 catch this class of problem.
 
 **Statistical timing test.** `examples/dudect_decaps.rs` times the secret
-phase on one Toy16 key for two classes, interleaved in random order. Class 0
+phase on one L1 key for two classes, interleaved in random order. Class 0
 is one fixed ciphertext. Class 1 is a pool of 16 fresh ciphertexts, half of
 them FO-rejected. It reports Welch's t, the dudect method. The result
 with 1,000 samples per class, in the same run:
@@ -196,7 +196,7 @@ What this check does and does not show:
   denominator, for example an intermediate divisor that is not in general
   position, the output is garbage. There is no branch or early exit, and the
   FO check rejects. For honest ciphertexts the probability is negligible at
-  real sizes. It was never observed in the Toy16, Toy32, L1, L3 or L5 runs.
+  real sizes. It was never observed in the L1, L3 or L5 runs.
   An adversary could try to induce it with crafted ciphertexts. The outcome
   is then a rejection that takes the same time, but the *rate* of such
   rejections might depend on the key, which would be a CCA-style failure
@@ -212,5 +212,26 @@ What this check does and does not show:
   separately. A production implementation should use fixed stack buffers.
 * **R7. Compiler and hardware.** See section 5 and the platform assumption in
   section 1.
-* **R8. Power, EM and faults** are not addressed. The FO re-encryption check
-  catches faults that corrupt the recovered s, but not faults that skip it.
+* **R8. Power, EM and faults.** See §7.
+
+## 7. Faults
+
+In scope for this note only as a **threat model**, not as implemented
+countermeasures.
+
+An attacker who can flip bits or skip instructions during decapsulation can:
+
+* corrupt the recovered scalar `s` — the FO re-encryption check
+  (`decaps_core`) then returns the implicit-rejection key, so the fault does
+  not yield the honest shared secret;
+* skip that comparison — then a wrong `s` can be accepted; this is the same
+  class of attack as on other FO KEMs (including FESTA) and is not prevented
+  here;
+* fault key generation into a weak `f` — keygen is assumed to run in a
+  trusted environment (`R1`).
+
+Masks are derived per ciphertext from `s` and are not reused
+(`SECURITY.md` §3.3), so a fault that reveals one ciphertext's masks does
+not reveal the next. No infective computation, no redundant chain, and no
+checksum over the secret scalars is implemented. Adding those would be a
+new design, not a parameter tweak.

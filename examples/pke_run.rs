@@ -1,4 +1,4 @@
-//! cargo run --release --example pke_run -- <Toy16|Toy32|L1|L3|L5|Q3|Q5>
+//! cargo run --release --example pke_run -- <L1|L3|L5|Q3|Q5>
 use eigen_seta::kem::EigenSeta;
 use eigen_seta::params::*;
 use eigen_seta::pke::EigenSetaPke;
@@ -34,10 +34,8 @@ fn go<P: ParamSet<N>, const N: usize>() {
 }
 
 fn main() {
-    let set = std::env::args().nth(1).unwrap_or_else(|| "Toy16".into());
+    let set = std::env::args().nth(1).unwrap_or_else(|| "L1".into());
     match set.as_str() {
-        "Toy16" => go::<Toy16, 4>(),
-        "Toy32" => go::<Toy32, 6>(),
         "L1" => go::<L1, 21>(),
         "L3" => go::<L3, 32>(),
         "L5" => go::<L5, 42>(),

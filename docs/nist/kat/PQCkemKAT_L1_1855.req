@@ -1,0 +1,22 @@
+# Eigen-Seta KEM known-answer file (draft, not an upload)
+# set = L1
+# pk_bytes = 1344
+# sk_bytes = 1855
+# ct_bytes = 1344
+# ss_bytes = 32
+# encaps_seed_bytes = 49
+# count = 1
+# drbg = SHAKE256 domain EigenSeta-DRBG (src/drbg.rs), not NIST AES-256-CTR
+# master_seed = EigenSeta-NIST-KAT-v1-L1
+# seed_bytes = 48
+# keygen_coins includes the keygen self-test encapsulation draw
+# L1 meets a NIST gate-count style Tier A argument only. It is not NIST Category 1 under a 2^λ query bar. The binding quantum attack is Grover on mask-guess, about 2^{λ/2} queries. A submission that recommends L1 as NIST Category 1 is a false submission.
+# QROM IND-CCA is not claimed. See docs/nist/COVER.md.
+#
+count = 0
+seed = 34D4E91F74FC98D0A2DBFEC4D74BE7C549CB111C91FFCF38749FCABF6CCFB826D286413AF6A4B327CD76CEF6050CED46
+pk =
+sk =
+ct =
+ss =
+

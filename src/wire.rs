@@ -48,8 +48,6 @@ impl Kind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum SetId {
-    Toy16 = 1,
-    Toy32 = 2,
     L1 = 3,
     L3 = 4,
     L5 = 5,
@@ -58,9 +56,7 @@ pub enum SetId {
 }
 
 impl SetId {
-    pub const ALL: [SetId; 7] = [
-        SetId::Toy16,
-        SetId::Toy32,
+    pub const ALL: [SetId; 5] = [
         SetId::L1,
         SetId::L3,
         SetId::L5,
@@ -71,6 +67,10 @@ impl SetId {
         SetId::ALL.iter().copied().find(|s| *s as u8 == b)
     }
     pub fn from_name(s: &str) -> Option<SetId> {
+        // Q1 is an alias for L5: same prime (quantum-hardened λ = 128).
+        if s.eq_ignore_ascii_case("Q1") {
+            return Some(SetId::L5);
+        }
         SetId::ALL
             .iter()
             .copied()
@@ -78,8 +78,6 @@ impl SetId {
     }
     pub fn name(self) -> &'static str {
         match self {
-            SetId::Toy16 => "Toy16",
-            SetId::Toy32 => "Toy32",
             SetId::L1 => "L1",
             SetId::L3 => "L3",
             SetId::L5 => "L5",
@@ -148,5 +146,7 @@ mod tests {
             assert_eq!(SetId::from_name(s.name()), Some(s));
             assert_eq!(SetId::from_u8(s as u8), Some(s));
         }
+        assert_eq!(SetId::from_name("Q1"), Some(SetId::L5));
+        assert_eq!(SetId::from_name("q1"), Some(SetId::L5));
     }
 }

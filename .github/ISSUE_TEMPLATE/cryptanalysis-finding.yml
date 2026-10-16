@@ -47,7 +47,7 @@ body:
     id: repro
     attributes:
       label: Reproduction (optional)
-      description: Code, a Sage/Magma script, or a command against this repository that demonstrates it at toy scale.
+      description: Code, a Sage/Magma script, or a command against this repository that demonstrates it.
   - type: input
     id: revision
     attributes:

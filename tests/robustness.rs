@@ -6,11 +6,11 @@
 use eigen_seta::drbg::Drbg;
 use eigen_seta::fp2::Fp2;
 use eigen_seta::kem::{Ciphertext, EigenSeta, PublicKey};
-use eigen_seta::params::{ParamSet, Toy16, Toy16Fp};
+use eigen_seta::params::{L1, L1Fp, ParamSet};
 use rand_core::RngCore;
 
-type K = EigenSeta<Toy16, 4>;
-type F = Fp2<Toy16Fp, 4>;
+type K = EigenSeta<L1, 21>;
+type F = Fp2<L1Fp, 21>;
 
 fn keypair(seed: u64) -> (PublicKey, eigen_seta::kem::SecretKey) {
     let mut rng = Drbg::for_vector("robustness", seed);
@@ -60,7 +60,7 @@ fn non_canonical_field_encoding_is_rejected() {
     let l = F::byte_len();
     let bad = {
         // p itself, big-endian, is an invalid F_p element encoding (>= p).
-        let modulus = <Toy16Fp as eigen_seta::fp::FpConfig<4>>::MODULUS;
+        let modulus = <L1Fp as eigen_seta::fp::FpConfig<21>>::MODULUS;
         let mut m = vec![0u8; l / 2];
         for (k, byte) in m.iter_mut().rev().enumerate() {
             *byte = (modulus[k / 8] >> (8 * (k % 8))) as u8;
@@ -159,5 +159,5 @@ fn malformed_public_keys_are_rejected_by_encaps() {
         *x = 0;
     }
     assert!(K::encaps(&PublicKey { bytes: b }, &mut rng).is_none());
-    let _ = <Toy16 as ParamSet<4>>::NAME;
+    let _ = <L1 as ParamSet<21>>::NAME;
 }

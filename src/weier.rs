@@ -60,6 +60,18 @@ impl<F: Field> WPoint<F> {
     }
 }
 
+fn affine_from_jac<F: Field>(x: F, y: F, z: F) -> WPoint<F> {
+    let zi = z.invert();
+    let zi2 = zi.square();
+    let inf = z.is_zero();
+    let r = WPoint {
+        x: x * zi2,
+        y: y * zi2 * zi,
+        inf: Choice::from(0),
+    };
+    WPoint::conditional_select(&r, &WPoint::infinity(), inf)
+}
+
 impl<F: Field> WCurve<F> {
     pub fn new(a2: F, a4: F, a6: F) -> Self {
         WCurve { a2, a4, a6 }
@@ -127,23 +139,42 @@ impl<F: Field> WCurve<F> {
         for _ in 0..n {
             let z2 = z.square();
             let y2 = y.square();
-            let m = x.square().mul_small(3) + (self.a2 * x * z2).double() + self.a4 * z2.square();
+            let xx = x.square();
+            let m = (xx.double() + xx) + (self.a2 * x * z2).double() + self.a4 * z2.square();
             let z3 = (y * z).double();
-            let x3 = m.square() - self.a2 * z3.square() - (x * y2).mul_small(8);
-            let y3 = m * ((x * y2).mul_small(4) - x3) - y2.square().mul_small(8);
+            let s = x * y2;
+            let s4 = s.double().double();
+            let x3 = m.square() - self.a2 * z3.square() - s4.double();
+            let y3 = m * (s4 - x3) - y2.square().double().double().double();
             x = x3;
             y = y3;
             z = z3;
         }
-        let zi = z.invert();
-        let zi2 = zi.square();
-        let inf = z.is_zero();
-        let r = WPoint {
-            x: x * zi2,
-            y: y * zi2 * zi,
-            inf: Choice::from(0),
-        };
-        WPoint::conditional_select(&r, &WPoint::infinity(), inf)
+        affine_from_jac(x, y, z)
+    }
+
+    /// [`dbl_iter`] specialised to a Montgomery model (`a4 = 1`, `a6 = 0`).
+    pub fn dbl_iter_mont(&self, p: &WPoint<F>, n: usize) -> WPoint<F> {
+        let (mut x, mut y, mut z) = (
+            p.x,
+            p.y,
+            F::conditional_select(&F::one(), &F::zero(), p.inf),
+        );
+        for _ in 0..n {
+            let z2 = z.square();
+            let y2 = y.square();
+            let xx = x.square();
+            let m = (xx.double() + xx) + (self.a2 * x * z2).double() + z2.square();
+            let z3 = (y * z).double();
+            let s = x * y2;
+            let s4 = s.double().double();
+            let x3 = m.square() - self.a2 * z3.square() - s4.double();
+            let y3 = m * (s4 - x3) - y2.square().double().double().double();
+            x = x3;
+            y = y3;
+            z = z3;
+        }
+        affine_from_jac(x, y, z)
     }
 
     /// [k]P for a small public k (keygen / tests only).
@@ -191,6 +222,80 @@ impl<F: Field> Isog2<F> {
         let r = WPoint { x, y, inf: p.inf };
         WPoint::conditional_select(&r, &WPoint::infinity(), in_kernel)
     }
+}
+
+/// Isomorphism from a Weierstrass curve with a rational 2-torsion point
+/// `(r, 0)` onto a Montgomery model `y^2 = x^3 + A x^2 + x`.
+///
+/// Translate by `r` so the torsion lands at `0`, then scale by `u^2 = √B`
+/// (B = the resulting linear coefficient) so the model is Montgomery.
+/// Map: `(x, y) ↦ ((x - r)/u², y/u³)`.
+#[derive(Clone, Copy, Debug)]
+pub struct ToMontgomery<F: Field> {
+    pub r: F,
+    pub u2: F,
+    pub u3: F,
+    pub inv_u2: F,
+    pub inv_u3: F,
+    pub curve: WCurve<F>,
+}
+
+impl<F: Field> ToMontgomery<F> {
+    /// Build the Montgomery model of `e` using 2-torsion x-coordinate `r`.
+    /// Garbage if `rhs(r) ≠ 0` or the translated linear coefficient is not
+    /// a square (the cases that arise from 2-isogenies of Montgomery curves
+    /// over `F_{p²}` are fine).
+    pub fn from_torsion(e: &WCurve<F>, r: F) -> Self {
+        let a2p = e.a2 + r.mul_small(3);
+        let a4p = e.a4 + e.a2.double() * r + r.square().mul_small(3);
+        let (u2, _) = a4p.sqrt();
+        let (u, _) = u2.sqrt();
+        let u3 = u2 * u;
+        let inv_u2 = u2.invert();
+        let inv_u3 = u3.invert();
+        let a_mont = a2p * inv_u2;
+        ToMontgomery {
+            r,
+            u2,
+            u3,
+            inv_u2,
+            inv_u3,
+            curve: WCurve::from_montgomery(a_mont),
+        }
+    }
+
+    pub fn eval(&self, p: &WPoint<F>) -> WPoint<F> {
+        let r = WPoint {
+            x: (p.x - self.r) * self.inv_u2,
+            y: p.y * self.inv_u3,
+            inf: Choice::from(0),
+        };
+        WPoint::conditional_select(&r, &WPoint::infinity(), p.inf)
+    }
+}
+
+/// The three 2-torsion x-coordinates on a Montgomery curve
+/// `y^2 = x^3 + A x^2 + x`: `{0, α, β}` with `α, β` the roots of
+/// `x^2 + A x + 1`.
+pub fn montgomery_2_torsion_xs<F: Field>(a: F) -> [F; 3] {
+    let disc = a.square() - F::from_i64(4);
+    let (sq, _) = disc.sqrt();
+    let inv2 = F::from_i64(2).invert();
+    let alpha = (-a + sq) * inv2;
+    let beta = (-a - sq) * inv2;
+    [F::zero(), alpha, beta]
+}
+
+/// The two non-kernel 2-torsion x-coordinates on `e`, given one 2-torsion
+/// root `ker_x` (e.g. an [`Isog2`] kernel).  Divides the 2-division cubic by
+/// `(x - ker_x)` and solves the resulting quadratic.
+pub fn complementary_2_torsion_xs<F: Field>(e: &WCurve<F>, ker_x: F) -> [F; 2] {
+    let s = e.a2 + ker_x;
+    let p = e.a4 + e.a2 * ker_x + ker_x.square();
+    let disc = s.square() - p.mul_small(4);
+    let (sq, _) = disc.sqrt();
+    let inv2 = F::from_i64(2).invert();
+    [(-s + sq) * inv2, (-s - sq) * inv2]
 }
 
 /// Isomorphism (x, y) -> (u^2 (x + s1) - s2, u^3 y) between two curves of
