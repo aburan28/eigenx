@@ -209,7 +209,7 @@ pub fn form_kernel<F: crate::field::Field>(
 }
 
 /// Cost-model oracle: one `(2^n, 2^n)`-isogeny between elliptic products.
-pub fn oracle_product_isogeny<F: crate::field::Field>(
+pub fn oracle_product_isogeny<F: crate::field::Field + Send + Sync>(
     e_a: &WCurve<F>,
     e_c: &WCurve<F>,
     p_a: &WPoint<F>,

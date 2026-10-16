@@ -1,4 +1,4 @@
-//! cargo run --release --example run -- <Toy16|Toy32|L1|L3|L5|Q3|Q5> [trials]
+//! cargo run --release --example run -- <L1|L3|L5|Q3|Q5> [trials]
 use eigen_seta::kem::EigenSeta;
 use eigen_seta::params::*;
 use rand_core::OsRng;
@@ -44,11 +44,9 @@ fn go<P: ParamSet<N>, const N: usize>(trials: usize) {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let set = args.get(1).map(|s| s.as_str()).unwrap_or("Toy16");
+    let set = args.get(1).map(|s| s.as_str()).unwrap_or("L1");
     let trials = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(3);
     match set {
-        "Toy16" => go::<Toy16, 4>(trials),
-        "Toy32" => go::<Toy32, 6>(trials),
         "L1" => go::<L1, 21>(trials),
         "L3" => go::<L3, 32>(trials),
         "L5" => go::<L5, 42>(trials),

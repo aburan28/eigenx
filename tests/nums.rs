@@ -1,8 +1,8 @@
-//! Nothing-up-my-sleeve cofactors for the toy primes (fast). Larger sets:
-//! `cargo run --release --example verify_nums -- L1`.
+//! Nothing-up-my-sleeve cofactors. L1 is checked here; the other sets are
+//! the same test via `cargo run --release --example verify_nums`.
 use eigen_seta::fp::FpConfig;
 use eigen_seta::ntheory::{is_nums_prime, NUMS_MR_BASES};
-use eigen_seta::params::{ParamSet, Toy16, Toy32};
+use eigen_seta::params::{L1, ParamSet};
 use num_bigint::BigUint;
 
 fn minimal<P: ParamSet<N>, const N: usize>() {
@@ -34,11 +34,6 @@ fn nums_bases_are_public_and_fixed() {
 }
 
 #[test]
-fn toy16_cofactor_is_minimal() {
-    minimal::<Toy16, 4>();
-}
-
-#[test]
-fn toy32_cofactor_is_minimal() {
-    minimal::<Toy32, 6>();
+fn l1_cofactor_is_minimal() {
+    minimal::<L1, 21>();
 }

@@ -4,14 +4,18 @@
 //! and key generation selects keys for which this schedule holds, so the
 //! sequence of operations never depends on the secret key or the ciphertext.
 
+use crate::cm::mul_vartime;
 use crate::ct::{Choice, ConditionallySelectable};
 use crate::field::Field;
 use crate::kani::{div_dbl_iter, div_dbl_iter_batch, Div, Glue, Richelot, Split};
+use crate::mont::{xdbl, ProjCurve, XPoint};
 use crate::strategy::optimal;
 use crate::theta::product_isogeny;
 use crate::weier::{complementary_2_torsion_xs, Isog2, ToMontgomery, WCurve, WIso, WPoint};
+use num_bigint::BigUint;
 
 pub type Pair<F> = (WPoint<F>, WPoint<F>);
+pub type KeygenOut<F> = (WCurve<F>, WCurve<F>, Vec<Pair<F>>);
 
 pub fn graph_identity<F: Field>(e: &WCurve<F>, p: &Pair<F>) -> Pair<F> {
     (e.add(&p.0, &p.1), e.sub(&p.0, &p.1))
@@ -20,17 +24,67 @@ pub fn graph_identity<F: Field>(e: &WCurve<F>, p: &Pair<F>) -> Pair<F> {
 /// Product-kernel step: each factor gets one 2-torsion point of the kernel,
 /// selected in constant time (exactly one of the two generators is nonzero
 /// on each factor for honest inputs).
-pub fn prodker_step<F: Field>(
+fn curve_is_mont<F: Field>(e: &WCurve<F>) -> bool {
+    bool::from(e.a6.is_zero()) && bool::from(e.a4.ct_eq(&F::one()))
+}
+
+/// [2^n]P on a Montgomery curve, x-only. The returned point carries the
+/// affine x and the infinity flag; its y is unused (callers need the kernel
+/// x-coordinate only).
+fn mont_xdbl_x<F: Field>(e: &WCurve<F>, p: &WPoint<F>, n: usize) -> WPoint<F> {
+    let c = ProjCurve::from_affine(e.a2);
+    let mut x = XPoint {
+        x: p.x,
+        z: F::conditional_select(&F::one(), &F::zero(), p.inf),
+    };
+    for _ in 0..n {
+        x = xdbl(&x, &c);
+    }
+    let inf = x.is_infinity();
+    let r = WPoint {
+        x: x.affine(),
+        y: F::zero(),
+        inf: Choice::from(0),
+    };
+    WPoint::conditional_select(&r, &WPoint::infinity(), inf)
+}
+
+pub fn prodker_step<F: Field + Send + Sync>(
     e1: &WCurve<F>,
     e2: &WCurve<F>,
     k1: &Pair<F>,
     k2: &Pair<F>,
     h: usize,
 ) -> (Isog2<F>, Isog2<F>) {
-    let a1 = e1.dbl_iter(&k1.0, h);
-    let a2 = e1.dbl_iter(&k2.0, h);
-    let b1 = e2.dbl_iter(&k1.1, h);
-    let b2 = e2.dbl_iter(&k2.1, h);
+    let mont = curve_is_mont(e1) && curve_is_mont(e2);
+    let (a1, a2, b1, b2) = if mont && h >= 48 {
+        std::thread::scope(|scope| {
+            let a1 = scope.spawn(|| mont_xdbl_x(e1, &k1.0, h));
+            let a2 = scope.spawn(|| mont_xdbl_x(e1, &k2.0, h));
+            let b1 = scope.spawn(|| mont_xdbl_x(e2, &k1.1, h));
+            let b2 = scope.spawn(|| mont_xdbl_x(e2, &k2.1, h));
+            (
+                a1.join().expect("prodker"),
+                a2.join().expect("prodker"),
+                b1.join().expect("prodker"),
+                b2.join().expect("prodker"),
+            )
+        })
+    } else if mont {
+        (
+            mont_xdbl_x(e1, &k1.0, h),
+            mont_xdbl_x(e1, &k2.0, h),
+            mont_xdbl_x(e2, &k1.1, h),
+            mont_xdbl_x(e2, &k2.1, h),
+        )
+    } else {
+        (
+            e1.dbl_iter(&k1.0, h),
+            e1.dbl_iter(&k2.0, h),
+            e2.dbl_iter(&k1.1, h),
+            e2.dbl_iter(&k2.1, h),
+        )
+    };
     let kap1 = WPoint::conditional_select(&a1, &a2, a1.inf);
     let kap2 = WPoint::conditional_select(&b1, &b2, b1.inf);
     (Isog2::new(e1, &kap1.x), Isog2::new(e2, &kap2.x))
@@ -105,7 +159,7 @@ pub fn jacobian_phase<F: Field>(
 /// The decapsulation (2^e, 2^e)-chain on E x E with kernel <K1, K2> and the
 /// fixed schedule.  Returns the codomain curve (both factors are the same
 /// curve after the final graph step) and the images of `payload`.
-pub fn decaps_chain<F: Field>(
+pub fn decaps_chain<F: Field + Send + Sync>(
     ec: &WCurve<F>,
     k1: &Pair<F>,
     k2: &Pair<F>,
@@ -190,7 +244,7 @@ fn codomain_torsion_x<F: Field>(domain: &WCurve<F>, phi: &Isog2<F>) -> F {
 ///
 /// Mumford [`decaps_chain`] is left unchanged; this is the parallel entry
 /// point for Eigen-Séta decapsulation experiments / a future recover switch.
-pub fn decaps_chain_theta<F: Field>(
+pub fn decaps_chain_theta<F: Field + Send + Sync>(
     ec: &WCurve<F>,
     k1: &Pair<F>,
     k2: &Pair<F>,
@@ -210,8 +264,11 @@ pub fn decaps_chain_theta<F: Field>(
 
     // Put both Isog2 codomains into Montgomery form (theta gluing/splitting
     // is derived for y^2 = x^3 + A x^2 + x).
-    let tm1 = ToMontgomery::from_torsion(&f.0.codomain, codomain_torsion_x(ec, &f.0));
-    let tm2 = ToMontgomery::from_torsion(&f.1.codomain, codomain_torsion_x(ec, &f.1));
+    let (tm1, tm2) = std::thread::scope(|scope| {
+        let a = scope.spawn(|| ToMontgomery::from_torsion(&f.0.codomain, codomain_torsion_x(ec, &f.0)));
+        let b = scope.spawn(|| ToMontgomery::from_torsion(&f.1.codomain, codomain_torsion_x(ec, &f.1)));
+        (a.join().expect("montgomery"), b.join().expect("montgomery"))
+    });
     let map_mont = |p: &Pair<F>| (tm1.eval(&p.0), tm2.eval(&p.1));
     k1 = map_mont(&k1);
     k2 = map_mont(&k2);
@@ -275,7 +332,7 @@ pub struct ChainReport {
 /// Walk the decapsulation schedule in variable time with structural checks
 /// at every step (see `ChainReport`).  Doublings are done naively, so the
 /// cost is quadratic in `e`; this is analysis code, not the KEM.
-pub fn inspect_chain<F: Field>(
+pub fn inspect_chain<F: Field + Send + Sync>(
     ec: &WCurve<F>,
     k1: &Pair<F>,
     k2: &Pair<F>,
@@ -338,6 +395,95 @@ pub fn inspect_chain<F: Field>(
     let l1 = div_dbl_iter(&h, &gens[1], 2);
     report.final_split = bool::from(kernel_determinant(&h, &l0, &l1).is_zero());
     report
+}
+
+/// Montgomery model of `e` using a rational 2-torsion x-coordinate `r`.
+/// Tries both square roots of the translated linear coefficient so the
+/// scaling factor is a square, and keeps the model only when `j` is preserved.
+fn try_to_montgomery<F: Field>(e: &WCurve<F>, r: F) -> Option<ToMontgomery<F>> {
+    if !bool::from(e.rhs(&r).is_zero()) {
+        return None;
+    }
+    let a2p = e.a2 + r.mul_small(3);
+    let a4p = e.a4 + e.a2.double() * r + r.square().mul_small(3);
+    let (s, ok) = a4p.sqrt();
+    if !bool::from(ok) {
+        return None;
+    }
+    for u2 in [s, -s] {
+        let (u, uok) = u2.sqrt();
+        if !bool::from(uok) {
+            continue;
+        }
+        let u3 = u2 * u;
+        let inv_u2 = u2.invert();
+        let inv_u3 = u3.invert();
+        if bool::from(inv_u2.is_zero()) || bool::from(inv_u3.is_zero()) {
+            continue;
+        }
+        let tm = ToMontgomery {
+            r,
+            u2,
+            u3,
+            inv_u2,
+            inv_u3,
+            curve: WCurve::from_montgomery(a2p * inv_u2),
+        };
+        if bool::from(tm.curve.j_invariant().ct_eq(&e.j_invariant())) {
+            return Some(tm);
+        }
+    }
+    None
+}
+
+/// Put `e` in Montgomery form.  A kernel 2-torsion point used as the origin
+/// collapses a keygen kernel, so the two complementary roots are tried first.
+fn montgomery_of_curve<F: Field>(e: &WCurve<F>, ker_x: F) -> Option<ToMontgomery<F>> {
+    let xs = complementary_2_torsion_xs(e, ker_x);
+    for r in [xs[0], xs[1], ker_x] {
+        if let Some(tm) = try_to_montgomery(e, r) {
+            return Some(tm);
+        }
+    }
+    None
+}
+
+/// Key-generation chain in the theta model.
+///
+/// `k1`, `k2` are a symplectic basis of order `2^{e+2}` on `E × E` whose
+/// 4th multiples are the usual order-`2^e` keygen kernel.  [`product_isogeny`]
+/// with `n = e` quotients by that kernel (it consumes two bits of 8-torsion
+/// for gluing).  `payload` is the five keygen points.
+///
+/// Kummer y-signs on the split images are left as the principal square
+/// roots; the caller recovers the eigenbasis by trying the eight sign
+/// patterns against the 2-torsion test.  That is cheaper than pushing
+/// extra anchors through the chain and aborting the attempt when they
+/// fail to match.
+///
+/// `None` if the curve cannot be put in Montgomery form.
+pub fn keygen_chain_theta<F: Field + Send + Sync>(
+    e0: &WCurve<F>,
+    k1: &Pair<F>,
+    k2: &Pair<F>,
+    e: usize,
+    payload: &[Pair<F>],
+) -> Option<KeygenOut<F>> {
+    if e < 2 || payload.len() < 5 {
+        return None;
+    }
+    let t2 = mul_vartime(e0, &k1.0, &(BigUint::from(1u32) << (e + 1)));
+    if bool::from(t2.inf) {
+        return None;
+    }
+    let tm = montgomery_of_curve(e0, t2.x)?;
+    let map = |p: &WPoint<F>| tm.eval(p);
+    let k1 = (map(&k1.0), map(&k1.1));
+    let k2 = (map(&k2.0), map(&k2.1));
+    let images: Vec<Pair<F>> = payload.iter().map(|p| (map(&p.0), map(&p.1))).collect();
+    let strategy = optimal(e, 1.0, 1.0);
+    let ((e3, e4), outs) = product_isogeny(&(tm.curve, tm.curve), &k1, &k2, &images, e, &strategy);
+    Some((e3, e4, outs))
 }
 
 /// Key-generation chain (variable time is acceptable here): schedule

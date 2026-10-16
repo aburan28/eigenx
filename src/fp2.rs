@@ -98,22 +98,36 @@ impl<C: FpConfig<N>, const N: usize> Fp2<C, N> {
     pub fn double(&self) -> Self {
         self.add(self)
     }
-    /// Karatsuba: 3 base multiplications.
+    /// Karatsuba: 3 base multiplications, issued together.
     #[inline]
     pub fn mul(self, o: &Self) -> Self {
-        let v0 = self.c0.mul(&o.c0);
-        let v1 = self.c1.mul(&o.c1);
-        let s = self.c0.add(&self.c1).mul(&o.c0.add(&o.c1));
+        let s0 = self.c0.add(&self.c1);
+        let s1 = o.c0.add(&o.c1);
+        let (v0, v1, s) = Fp::mul3(&self.c0, &o.c0, &self.c1, &o.c1, &s0, &s1);
         Fp2 {
             c0: v0.sub(&v1),
             c1: s.sub(&v0).sub(&v1),
         }
     }
-    /// (a+bi)^2 = (a+b)(a-b) + 2ab i: 2 base multiplications.
+    /// (a+bi)^3 = a(a^2-3b^2) + b(3a^2-b^2)i.  Four base multiplications
+    /// (two of them squares) instead of a square and a product.
+    #[inline]
+    pub fn cube(&self) -> Self {
+        let a2 = self.c0.square();
+        let b2 = self.c1.square();
+        let three_a2 = a2.double() + a2;
+        let three_b2 = b2.double() + b2;
+        Fp2 {
+            c0: self.c0.mul(&a2.sub(&three_b2)),
+            c1: self.c1.mul(&three_a2.sub(&b2)),
+        }
+    }
+    /// (a+bi)^2 = (a+b)(a-b) + 2ab i: 2 base multiplications, issued together.
     #[inline]
     pub fn square(&self) -> Self {
-        let t = self.c0.add(&self.c1).mul(&self.c0.sub(&self.c1));
-        let u = self.c0.mul(&self.c1);
+        let p = self.c0.add(&self.c1);
+        let m = self.c0.sub(&self.c1);
+        let (t, u) = Fp::mul2(&p, &m, &self.c0, &self.c1);
         Fp2 {
             c0: t,
             c1: u.double(),

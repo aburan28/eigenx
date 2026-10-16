@@ -7,7 +7,7 @@
 //!
 //!   ct_probe <key_seed> <ct_seed> <valid|foreign>
 use eigen_seta::kem::{Ciphertext, DecapsPrep, EigenSeta, SecretKey};
-use eigen_seta::params::{Toy16, Toy16Fp};
+use eigen_seta::params::{L1, L1Fp};
 use rand_core::{CryptoRng, RngCore};
 
 /// SplitMix64: deterministic test RNG (NOT for production keys).
@@ -36,14 +36,14 @@ impl RngCore for TestRng {
 }
 impl CryptoRng for TestRng {}
 
-type K = EigenSeta<Toy16, 4>;
+type K = EigenSeta<L1, 21>;
 
 /// Only the secret phase is measured: the public preparation (parsing,
 /// point lifting, canonical bases; variable time by design) runs outside.
 #[inline(never)]
 fn probe_core(
     sk: &SecretKey,
-    prep: &DecapsPrep<eigen_seta::fp2::Fp2<Toy16Fp, 4>>,
+    prep: &DecapsPrep<eigen_seta::fp2::Fp2<L1Fp, 21>>,
     ct: &Ciphertext,
 ) -> [u8; 32] {
     K::decaps_core(

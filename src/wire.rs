@@ -48,8 +48,6 @@ impl Kind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum SetId {
-    Toy16 = 1,
-    Toy32 = 2,
     L1 = 3,
     L3 = 4,
     L5 = 5,
@@ -58,9 +56,7 @@ pub enum SetId {
 }
 
 impl SetId {
-    pub const ALL: [SetId; 7] = [
-        SetId::Toy16,
-        SetId::Toy32,
+    pub const ALL: [SetId; 5] = [
         SetId::L1,
         SetId::L3,
         SetId::L5,
@@ -82,8 +78,6 @@ impl SetId {
     }
     pub fn name(self) -> &'static str {
         match self {
-            SetId::Toy16 => "Toy16",
-            SetId::Toy32 => "Toy32",
             SetId::L1 => "L1",
             SetId::L3 => "L3",
             SetId::L5 => "L5",

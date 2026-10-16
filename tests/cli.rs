@@ -1,4 +1,4 @@
-//! End-to-end test of the `eigenx` command-line tool at Toy16: keygen,
+//! End-to-end test of the `eigenx` command-line tool at L1: keygen,
 //! encaps/decaps, encrypt/decrypt, associated-data mismatch, info.
 
 use std::path::PathBuf;
@@ -24,17 +24,17 @@ fn run(args: &[&str]) -> (bool, String, String) {
 }
 
 #[test]
-fn cli_round_trip_toy16() {
+fn cli_round_trip_l1() {
     let d = tmpdir();
     let p = |n: &str| d.join(n).to_string_lossy().into_owned();
     let (ok, out, _) = run(&["params"]);
     assert!(ok);
-    assert!(out.contains("Toy16") && out.contains("L5") && out.contains("Q5"));
+    assert!(out.contains("L1") && out.contains("L5") && out.contains("Q5"));
 
     let (ok, _, err) = run(&[
         "keygen",
         "--set",
-        "Toy16",
+        "L1",
         "--pk",
         &p("pk"),
         "--sk",

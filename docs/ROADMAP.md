@@ -18,7 +18,7 @@ Still open outside this repository:
 
 | Item | Status |
 |---|---|
-| External sign-off that the constant 2^8 in the Grover oracle is defensible | [ ] reviewers on PR #1. The formula and the Toy16 measurement are in `security.rs` and `LITERATURE_DRILL.md` L3 |
+| External sign-off that the constant 2^8 in the Grover oracle is defensible | [ ] reviewers on PR #1. The formula is in `security.rs` and `LITERATURE_DRILL.md` L3 |
 
 ## 2. Recommend L5 / Q3 / Q5 for post-quantum deployments
 
@@ -42,10 +42,10 @@ Still open outside this repository:
 | Sage driver stub + setup instructions | [x] research/kani4_sage/ |
 | Literature drill template (DFP / Arpin / Macula–Stange) | [x] docs/LITERATURE_DRILL.md |
 | Run Theta_dim4 `KaniEndoHalf` on the published e_A=16 instance (eval correct) | [x] `research/kani4_sage/SMALLEST_RUN.md` |
-| Recover an Eigen-Séta Toy16 isogeny image inside Theta_dim4 | [x] `attack_toy16.sage` (eval check true, 0.3 s) |
+| Recover an Eigen-Séta isogeny image inside Theta_dim4 | [x] `research/kani4_sage/` (eval check) |
 | Record that measurement on the mask-guess row | [x] `security.rs` note |
 | Author literature drill | [x] `docs/LITERATURE_DRILL.md` (L2 mask-free, L6, L8 still need an outside cryptanalyst) |
-| FO writeup checked against `kem.rs`; δ_corr probed at Toy16 | [x] `FO_PROOF.md`, `toy16_recovers_several_kernel_scalars` |
+| FO writeup checked against `kem.rs`; δ_corr probed at L1 | [x] `FO_PROOF.md`, `l1_recovers_several_kernel_scalars` |
 | External peer review of the FO proof, and a proof that δ_corr = 0 | [ ] not something this repository can close |
 | Cryptanalysis-finding issues on PR #1 | [ ] none filed yet; the template is in `.github/ISSUE_TEMPLATE` |
 
@@ -55,7 +55,7 @@ Still open outside this repository:
 |---|---|
 | Theta (2,2)-chain in KEM decaps | [x] |
 | Parallel keygen attempts (`keygen_with_jobs`, CLI `--jobs`) | [x] |
-| Re-tune attacker oracle costs after defender theta (document margin) | [x] gate model stays attacker-cheap; Toy16 wall clock is only a note |
+| Re-tune attacker oracle costs after defender theta (document margin) | [x] gate model stays attacker-cheap |
 | NUMS primes: smallest c, fixed MR bases, `verify_nums` | [x] `docs/NUMS.md` |
 | Montgomery-friendly mul for Q3/Q5 (limb cap 96) | [x] `fp::mul_friendly`, `docs/FIELD_MUL.md` |
 | Fiat-crypto / assembly codegen | [x] declined in `docs/FIELD_MUL.md`: same algorithm, seven NUMS primes |
@@ -74,7 +74,7 @@ For this repository’s own claims:
 3. **Review-ready** when PR #1 has clear tier language and a filled literature
    drill *or* explicit “unchecked” rows — not when every open question is
    closed (that is research).
-4. **Performance-usable** when Toy16/L1 remain interactive and Q* keygen can
+4. **Performance-usable** when L1 remains interactive and Q* keygen can
    use `--jobs` to cut wall time roughly by the number of cores (rejection
    sampling).
 

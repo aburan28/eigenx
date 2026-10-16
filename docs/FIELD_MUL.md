@@ -2,7 +2,7 @@
 
 Eigen-Séta primes have the shape `p = 2^(E+1) · 3^F3 · c − 1`, so `p ≡ −1 (mod 2^{64Z})` for a large `Z` (`FpConfig::P1_ZERO_LIMBS`).
 
-`Fp::mul` uses that shape (`mul_friendly`): one schoolbook product, then a Montgomery reduction that skips the `Z` zero limbs of `p+1`. Cost is `N² + N(N−Z)` word products instead of about `2N²` for generic CIOS. The stack buffer covers every set we ship, including Q5 (82 limbs). `tests` in `fp.rs` check the product against integer arithmetic on Toy16, L1, Q3 and Q5.
+`Fp::mul` uses that shape (`mul_friendly`): one schoolbook product, then a Montgomery reduction that skips the `Z` zero limbs of `p+1`. Cost is `N² + N(N−Z)` word products instead of about `2N²` for generic CIOS. The stack buffer covers every set we ship, including Q5 (82 limbs). `tests` in `fp.rs` check the product against integer arithmetic on L1, Q3 and Q5.
 
 Gluing in `theta.rs` inverts several independent field elements with one inversion (`batch_invert`).
 

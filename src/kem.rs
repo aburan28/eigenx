@@ -11,22 +11,21 @@
 //!   deterministic trapdoor function s -> (E_C, [a]phi(P), [b]phi(Q)),
 //!   (a, b) = G(s, pk). IND-CCA security has not been established.
 
-use crate::chain::{decaps_chain_theta, first_step_glues, keygen_chain, Pair};
-use crate::cm::{
-    add_vartime, eigenvector_2k, mul_vartime, point_from_x, point_of_order, torsion_basis, Omega,
-};
+use crate::chain::{decaps_chain_theta, first_step_glues, keygen_chain, keygen_chain_theta, Pair};
+use crate::cm::{add_vartime, eigenvector_2k, mul_vartime, point_from_x, torsion_basis_cof, Omega};
 use crate::ct::{Choice, ConditionallySelectable, ConstantTimeEq};
 use crate::field::Field;
 use crate::fp::Fp;
 use crate::fp2::Fp2;
 use crate::isog3::chain3;
 use crate::mont::{
-    ladder, ladder3pt, recover_y, xadd, xdbl, xdbl_iter, xtpl_iter, MontCurve, ProjCurve, XPoint,
+    ladder, ladder3pt, recover_y, xadd, xdbl, xdbl_iter, xtpl, xtpl_iter, MontCurve, ProjCurve,
+    XPoint,
 };
 use crate::ntheory::{
     cornacchia, is_probable_prime, modpos, random_below, sqrt_mod_2power, two_squares, v2,
 };
-use crate::pairing::{dlog_3k, full_order_3k, weil_sq};
+use crate::pairing::{dlog_3k, full_order_3k, miller_many, weil_ratio, weil_sq};
 use crate::params::ParamSet;
 use crate::scalar::{OddModulus, Scalar};
 use crate::weier::{WCurve, WIso, WPoint};
@@ -171,28 +170,29 @@ fn canonical_basis_3<P: ParamSet<N>, const N: usize>(a: &F<P, N>) -> Option<WPai
     }
     let w = WCurve::from_montgomery(*a);
     let pc = ProjCurve::from_affine(*a);
-    let d = BigUint::from(3u32).pow(P::F3 as u32);
-    let cof = crate::cm::p_plus_1::<F<P, N>>() / &d;
-    let d1 = &d / 3u32;
+    let cof_odd = BigUint::from(P::COFACTOR);
     let mut found: Vec<WPoint<F<P, N>>> = vec![];
     // An arbitrary encoded curve need not have the expected 3^F3 torsion.
     // Never let a caller-supplied public key or ciphertext loop forever.
+    // (p+1) / 3^F3 = 2^(E+1) * c, so the cofactor is a straight doubling
+    // chain plus a tiny odd multiplier. Order checks are x-only triplings.
     for k in 1..=256u64 {
         let x = <F<P, N> as Field>::from_counter(k);
-        let Some(r) = point_from_x(&w, x) else {
+        let Some(r0) = point_from_x(&w, x) else {
             continue;
         };
-        let r = mul_vartime(&w, &r, &cof);
-        let r3 = mul_vartime(&w, &r, &d1);
-        if bool::from(r3.inf) {
+        let r = w.dbl_iter_mont(&r0, P::E + 1);
+        let r = mul_vartime(&w, &r, &cof_odd);
+        let r3 = xtpl_iter(&XPoint::from_affine(r.x), P::F3 - 1, &pc);
+        if bool::from(r3.is_infinity()) {
             continue;
         }
-        if !bool::from(xtpl_iter(&XPoint::from_affine(r.x), P::F3, &pc).is_infinity()) {
+        if !bool::from(xtpl(&r3, &pc).is_infinity()) {
             continue; // not in E[3^F3] on a malformed public curve
         }
         if let Some(p0) = found.first() {
-            let p3 = mul_vartime(&w, p0, &d1);
-            if bool::from(p3.x.ct_eq(&r3.x)) {
+            let p3 = xtpl_iter(&XPoint::from_affine(p0.x), P::F3 - 1, &pc);
+            if bool::from(p3.x_eq(&r3)) {
                 continue; // [3^(k-1)] R in <[3^(k-1)] P>
             }
             return Some((*p0, r));
@@ -200,6 +200,94 @@ fn canonical_basis_3<P: ParamSet<N>, const N: usize>(a: &F<P, N>) -> Option<WPai
         found.push(r);
     }
     None
+}
+
+/// One y-sign pattern of the dual 3-isogeny. Same operation count for every
+/// pattern. Returns the recovered scalar and whether the codomain is E_A.
+fn sign_pattern<P: ParamSet<N>, const N: usize>(
+    flip1: bool,
+    flip2: bool,
+    alpha1: WPoint<F<P, N>>,
+    alpha2: WPoint<F<P, N>>,
+    wc: WCurve<F<P, N>>,
+    cx1: WPoint<F<P, N>>,
+    cx2: WPoint<F<P, N>>,
+    x1: WPoint<F<P, N>>,
+    x2: WPoint<F<P, N>>,
+    a_c: F<P, N>,
+    a_a: F<P, N>,
+    pd: WPoint<F<P, N>>,
+    qd: WPoint<F<P, N>>,
+    pcc: ProjCurve<F<P, N>>,
+    pa: ProjCurve<F<P, N>>,
+    wa: WCurve<F<P, N>>,
+    d: &BigUint,
+    k3: usize,
+    d_bits: usize,
+    limbs: usize,
+) -> (Scalar, Choice) {
+    let ctx = Ctx::<P, N>::new();
+    let a1 = if flip1 { alpha1.neg() } else { alpha1 };
+    let a2 = if flip2 { alpha2.neg() } else { alpha2 };
+    let psi1 = wc.sub(&a1, &cx1);
+    let psi2 = wc.sub(&a2, &cx2);
+    let g1_full = !xtpl_iter(&XPoint::from_affine(psi1.x), k3 - 1, &pcc).is_infinity() & !psi1.inf;
+    let g = WPoint::conditional_select(&psi2, &psi1, g1_full);
+    let h = WPoint::conditional_select(&psi1, &psi2, g1_full);
+    let xg = WPoint::conditional_select(&x2, &x1, g1_full);
+    let xh = WPoint::conditional_select(&x1, &x2, g1_full);
+    // Four Miller chains, one per base point, each evaluated at the other
+    // two.  Together they are e(g, x1), e(g, x2), e(h, x1), e(h, x2).
+    let (e_g1, e_g2, e_h1, e_h2) = std::thread::scope(|scope| {
+        let mg = scope.spawn(|| miller_many(&wc, &g, &[x1, x2], d));
+        let mh = scope.spawn(|| miller_many(&wc, &h, &[x1, x2], d));
+        let mx1 = scope.spawn(|| miller_many(&wc, &x1, &[g, h], d));
+        let mx2 = scope.spawn(|| miller_many(&wc, &x2, &[g, h], d));
+        let mg = mg.join().expect("weil");
+        let mh = mh.join().expect("weil");
+        let mx1 = mx1.join().expect("weil");
+        let mx2 = mx2.join().expect("weil");
+        (
+            weil_ratio(mg[0], mx1[0]),
+            weil_ratio(mg[1], mx2[0]),
+            weil_ratio(mh[0], mx1[1]),
+            weil_ratio(mh[1], mx2[1]),
+        )
+    });
+    let r1_full = full_order_3k(&e_g1, k3);
+    let base = F::<P, N>::conditional_select(&e_g2, &e_g1, r1_full);
+    let tgt = F::<P, N>::conditional_select(&e_h2, &e_h1, r1_full);
+    let kk = dlog_3k(&base, &tgt, k3);
+    let kk = ctx.modd.to_scalar_width(&ctx.modd.reduce(&kk), limbs);
+    let khat = wc.sub(&xh, &smul_ct(&a_c, &xg, &kk, d_bits));
+    let mut pts = [XPoint::from_affine(x1.x), XPoint::from_affine(x2.x)];
+    let cod = chain3(&pcc, &XPoint::from_affine(khat.x), k3, &mut pts);
+    let a_cod = cod.affine_a();
+    let land = a_cod.ct_eq(&a_a) | a_cod.ct_eq(&(-a_a));
+    let neg = a_cod.ct_eq(&(-a_a));
+    let mut imx = [F::<P, N>::zero(); 2];
+    for i in 0..2 {
+        let x = pts[i].affine();
+        imx[i] = F::<P, N>::conditional_select(&x, &(-x), neg);
+    }
+    let full0 = !xtpl_iter(&XPoint::from_affine(imx[0]), k3 - 1, &pa).is_infinity();
+    let xkg = F::<P, N>::conditional_select(&imx[1], &imx[0], full0);
+    let (yk, _) = wa.rhs(&xkg).sqrt();
+    let kg = WPoint::new(xkg, yk);
+    let (z1, z2) = std::thread::scope(|scope| {
+        let m_kg = scope.spawn(|| miller_many(&wa, &kg, &[qd, pd], d));
+        let m_qd = scope.spawn(|| miller_many(&wa, &qd, &[kg], d));
+        let m_pd = scope.spawn(|| miller_many(&wa, &pd, &[kg], d));
+        let m_kg = m_kg.join().expect("weil");
+        let m_qd = m_qd.join().expect("weil");
+        let m_pd = m_pd.join().expect("weil");
+        (
+            weil_ratio(m_kg[0], m_qd[0]),
+            weil_ratio(m_pd[0], m_kg[1]),
+        )
+    });
+    let s = dlog_3k(&z1, &z2, k3);
+    (ctx.modd.to_scalar_width(&ctx.modd.reduce(&s), limbs), land)
 }
 
 /// Full point [k]P on the Montgomery curve (A), constant time in k and P:
@@ -513,8 +601,11 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
             return false;
         }
         let pc = ProjCurve::from_affine(a);
-        let hp = xdbl_iter(&XPoint::from_affine(xp), P::E - 1, &pc);
-        let hq = xdbl_iter(&XPoint::from_affine(xq), P::E - 1, &pc);
+        let (hp, hq) = std::thread::scope(|scope| {
+            let p = scope.spawn(|| xdbl_iter(&XPoint::from_affine(xp), P::E - 1, &pc));
+            let q = scope.spawn(|| xdbl_iter(&XPoint::from_affine(xq), P::E - 1, &pc));
+            (p.join().expect("order"), q.join().expect("order"))
+        });
         !bool::from(hp.is_infinity())
             && !bool::from(hq.is_infinity())
             && bool::from(xdbl(&hp, &pc).is_infinity())
@@ -562,11 +653,21 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         let (xp, xq, xpq) = (pts[0], pts[1], pts[2]);
         let xppq = xadd(&xp, &xq, &xpq); // x(phiP + phiQ)
         let (a, b) = Self::masks(ctx, &Self::s_to_bytes(ctx, s), pkh);
-        let (xs, _) = ladder(&xp, &a, ctx.e, &cc);
-        let (xt, _) = ladder(&xq, &b, ctx.e, &cc);
         let m = b.mul_mod_2k(&a.inv_mod_2k(ctx.e), ctx.e);
-        let wpt = ladder3pt(&xp, &xq, &xppq, &m, ctx.e, &cc); // phiP - [b/a] phiQ
-        let (xst, _) = ladder(&wpt, &a, ctx.e, &cc);
+        // Three independent 2^E ladders: [a]phiP, [b]phiQ, and [a](phiP-[b/a]phiQ).
+        let ((xs, _), (xt, _), (xst, _)) = std::thread::scope(|scope| {
+            let s = scope.spawn(|| ladder(&xp, &a, ctx.e, &cc));
+            let t = scope.spawn(|| ladder(&xq, &b, ctx.e, &cc));
+            let u = scope.spawn(|| {
+                let wpt = ladder3pt(&xp, &xq, &xppq, &m, ctx.e, &cc);
+                ladder(&wpt, &a, ctx.e, &cc)
+            });
+            (
+                s.join().expect("ladder"),
+                t.join().expect("ladder"),
+                u.join().expect("ladder"),
+            )
+        });
         fbytes(&[a_c, xs.affine(), xt.affine(), xst.affine()])
     }
 
@@ -580,9 +681,14 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
             return None;
         }
         let pkh = shake(&[b"EigenSeta-P", &pk.bytes], 32);
-        let mut buf = vec![0u8; ctx.d_bits.div_ceil(8) + 16];
+        // Uniform seed reduced mod d = 3^F3. A full-width draw is
+        // ceil(d_bits/8) bytes; ceil(λ/8) extra bytes makes the statistical
+        // distance of that reduction at most 2^{-λ}
+        // (SD ≤ m/2^{b+2} < 2^{-λ-2}). L1 (λ = 128) stays at +16 bytes.
+        let seed_bytes = ctx.d_bits.div_ceil(8) + P::LAMBDA.div_ceil(8);
+        let mut buf = vec![0u8; seed_bytes];
         rng.fill_bytes(&mut buf);
-        let s_raw = Scalar::from_le_bytes(&buf, buf.len().div_ceil(8));
+        let s_raw = Scalar::from_le_bytes(&buf, seed_bytes.div_ceil(8));
         let s = ctx
             .modd
             .to_scalar_width(&ctx.modd.reduce(&s_raw), ctx.modd.limbs());
@@ -627,7 +733,13 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
                 return None;
             }
         }
-        let (x1, x2) = canonical_basis_3::<P, N>(&a_c)?;
+        // The two 3^F3 bases are independent public work.
+        let (basis_c, pk_basis) = std::thread::scope(|scope| {
+            let b = scope.spawn(|| canonical_basis_3::<P, N>(&a_c));
+            let p = scope.spawn(|| Self::pk_basis(&pkf[0]));
+            (b.join().expect("basis"), p.join().expect("pk basis"))
+        });
+        let (x1, x2) = basis_c?;
         Some(DecapsPrep {
             pkf,
             a_c,
@@ -635,7 +747,7 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
             t_pt,
             x1,
             x2,
-            pk_basis: Self::pk_basis(&pkf[0])?,
+            pk_basis: pk_basis?,
         })
     }
 
@@ -688,22 +800,45 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         let wc = WCurve::from_montgomery(a_c);
         // secret: Kani kernel generators (c'S, -lamS S), (c'T, -lamT T)
         let e = ctx.e;
-        let k1 = (
-            smul_ct(&a_c, &s_pt, &sk.cp2, e),
-            smul_ct(&a_c, &s_pt, &sk.lam_s, e).neg(),
-        );
-        let k2 = (
-            smul_ct(&a_c, &t_pt, &sk.cp2, e),
-            smul_ct(&a_c, &t_pt, &sk.lam_t, e).neg(),
-        );
+        let d_bits = ctx.d_bits;
+        // Four secret ladders on E_C, independent of each other.
+        let (k1a, k1b, k2a, k2b) = std::thread::scope(|scope| {
+            let a = scope.spawn(|| smul_ct(&a_c, &s_pt, &sk.cp2, e));
+            let b = scope.spawn(|| smul_ct(&a_c, &s_pt, &sk.lam_s, e));
+            let c = scope.spawn(|| smul_ct(&a_c, &t_pt, &sk.cp2, e));
+            let d = scope.spawn(|| smul_ct(&a_c, &t_pt, &sk.lam_t, e));
+            (
+                a.join().expect("ladder"),
+                b.join().expect("ladder"),
+                c.join().expect("ladder"),
+                d.join().expect("ladder"),
+            )
+        });
+        let k1 = (k1a, k1b.neg());
+        let k2 = (k2a, k2b.neg());
         let o = WPoint::infinity();
-        // Theta (2,2)-chain (~28× faster at Toy16). Split recovers points from
+        // Theta (2,2)-chain. Split recovers points from
         // the Kummer line (y-signs ambiguous) and may swap product factors per
         // payload point; identify α by matching −c′X's x-coordinate on each
         // image independently, then CT-select among α y-sign patterns.
-        let (fc, imgs) = decaps_chain_theta(&wc, &k1, &k2, e, &[(x1, o), (o, x1), (x2, o)]);
-        let cpx1 = smul_ct(&a_c, &x1, &sk.cp3, ctx.d_bits);
-        let cpx2 = smul_ct(&a_c, &x2, &sk.cp3, ctx.d_bits);
+        // The four 3-power ladders do not depend on the theta chain.
+        let (fc, imgs, cpx1, cpx2, cx1, cx2) = std::thread::scope(|scope| {
+            let cpx1 = scope.spawn(|| smul_ct(&a_c, &x1, &sk.cp3, d_bits));
+            let cpx2 = scope.spawn(|| smul_ct(&a_c, &x2, &sk.cp3, d_bits));
+            let cx1 = scope.spawn(|| smul_ct(&a_c, &x1, &sk.c3, d_bits));
+            let cx2 = scope.spawn(|| smul_ct(&a_c, &x2, &sk.c3, d_bits));
+            // (O, X1) is not read after the chain; only the images of (X1, O)
+            // and (X2, O) identify α.
+            let chain = decaps_chain_theta(&wc, &k1, &k2, e, &[(x1, o), (x2, o)]);
+            (
+                chain.0,
+                chain.1,
+                cpx1.join().expect("ladder"),
+                cpx2.join().expect("ladder"),
+                cx1.join().expect("ladder"),
+                cx2.join().expect("ladder"),
+            )
+        });
         let sig = WIso::find(&fc, &wc);
         let mut alpha1 = WPoint::infinity();
         let mut alpha2 = WPoint::infinity();
@@ -720,7 +855,7 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         };
         for sc in [sig, sig.negate()] {
             let (a1, ok1) = pick_alpha(&imgs[0], &cpx1.neg(), &sc);
-            let (a2, ok2) = pick_alpha(&imgs[2], &cpx2.neg(), &sc);
+            let (a2, ok2) = pick_alpha(&imgs[1], &cpx2.neg(), &sc);
             let ok = ok1 & ok2;
             alpha1 = WPoint::conditional_select(&alpha1, &a1, ok);
             alpha2 = WPoint::conditional_select(&alpha2, &a2, ok);
@@ -731,55 +866,33 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         let pa = ProjCurve::from_affine(a_a);
         let wa = WCurve::from_montgomery(a_a);
         let (pd, qd) = (pk_basis.pd, pk_basis.qd);
-        let cx1 = smul_ct(&a_c, &x1, &sk.c3, ctx.d_bits);
-        let cx2 = smul_ct(&a_c, &x2, &sk.c3, ctx.d_bits);
         let limbs = ctx.modd.limbs();
+        let d = d.clone();
+        // Four y-sign patterns for (alpha1, alpha2). Each pattern is the same
+        // amount of work; they share no writes, so they run together. A later
+        // pattern still overrides an earlier one when both land, matching the
+        // sequential select.
+        let patterns = [(false, false), (false, true), (true, false), (true, true)];
+        let found = std::thread::scope(|scope| {
+            let mut joins = Vec::with_capacity(4);
+            for (flip1, flip2) in patterns {
+                let d = d.clone();
+                joins.push(scope.spawn(move || {
+                    sign_pattern::<P, N>(
+                        flip1, flip2, alpha1, alpha2, wc, cx1, cx2, x1, x2, a_c, a_a, pd, qd, pcc,
+                        pa, wa, &d, k3, d_bits, limbs,
+                    )
+                }));
+            }
+            joins
+                .into_iter()
+                .map(|j| j.join().expect("sign pattern"))
+                .collect::<Vec<_>>()
+        });
         let mut best = Scalar::zero(limbs);
-        // Four y-sign patterns for (alpha1, alpha2). Correct codomain of the
-        // dual 3-isogeny selects the right pattern(s) in constant time.
-        for flip1 in [false, true] {
-            for flip2 in [false, true] {
-                let a1 = if flip1 { alpha1.neg() } else { alpha1 };
-                let a2 = if flip2 { alpha2.neg() } else { alpha2 };
-                let psi1 = wc.sub(&a1, &cx1);
-                let psi2 = wc.sub(&a2, &cx2);
-                let g1_full = !xtpl_iter(&XPoint::from_affine(psi1.x), k3 - 1, &pcc).is_infinity()
-                    & !psi1.inf;
-                let g = WPoint::conditional_select(&psi2, &psi1, g1_full);
-                let h = WPoint::conditional_select(&psi1, &psi2, g1_full);
-                let xg = WPoint::conditional_select(&x2, &x1, g1_full);
-                let xh = WPoint::conditional_select(&x1, &x2, g1_full);
-                let e_g1 = weil_sq(&wc, &g, &x1, d);
-                let e_g2 = weil_sq(&wc, &g, &x2, d);
-                let r1_full = full_order_3k(&e_g1, k3);
-                let r = WPoint::conditional_select(&x2, &x1, r1_full);
-                let base = F::<P, N>::conditional_select(&e_g2, &e_g1, r1_full);
-                let tgt = weil_sq(&wc, &h, &r, d);
-                let kk = dlog_3k(&base, &tgt, k3);
-                let kk = ctx.modd.to_scalar_width(&ctx.modd.reduce(&kk), limbs);
-                let khat = wc.sub(&xh, &smul_ct(&a_c, &xg, &kk, ctx.d_bits));
-                let mut pts = [XPoint::from_affine(x1.x), XPoint::from_affine(x2.x)];
-                let cod = chain3(&pcc, &XPoint::from_affine(khat.x), k3, &mut pts);
-                let a_cod = cod.affine_a();
-                let land = a_cod.ct_eq(&a_a) | a_cod.ct_eq(&(-a_a));
-                let neg = a_cod.ct_eq(&(-a_a));
-                let mut imx = [F::<P, N>::zero(); 2];
-                for i in 0..2 {
-                    let x = pts[i].affine();
-                    imx[i] = F::<P, N>::conditional_select(&x, &(-x), neg);
-                }
-                let full0 = !xtpl_iter(&XPoint::from_affine(imx[0]), k3 - 1, &pa).is_infinity();
-                let xkg = F::<P, N>::conditional_select(&imx[1], &imx[0], full0);
-                let (yk, _) = wa.rhs(&xkg).sqrt();
-                let kg = WPoint::new(xkg, yk);
-                let z1 = weil_sq(&wa, &kg, &qd, d);
-                let z2 = weil_sq(&wa, &pd, &kg, d);
-                let s = dlog_3k(&z1, &z2, k3);
-                let s = ctx.modd.to_scalar_width(&ctx.modd.reduce(&s), limbs);
-                // CT limb-wise select when the dual lands on E_A.
-                for i in 0..limbs {
-                    best.l[i] = u64::conditional_select(&best.l[i], &s.l[i], land);
-                }
+        for (s, land) in found {
+            for i in 0..limbs {
+                best.l[i] = u64::conditional_select(&best.l[i], &s.l[i], land);
             }
         }
         best
@@ -797,8 +910,9 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
     pub fn keygen_with_trace<R: RngCore + CryptoRng>(
         rng: &mut R,
     ) -> (PublicKey, SecretKey, BigUint) {
+        let prep = Self::keygen_prep(rng);
         loop {
-            if let Some(kp) = Self::keygen_attempt(rng) {
+            if let Some(kp) = Self::keygen_attempt(rng, &prep) {
                 return kp;
             }
         }
@@ -834,8 +948,9 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
             let tx = tx.clone();
             handles.push(thread::spawn(move || {
                 let mut rng = OsRng;
+                let prep = Self::keygen_prep(&mut rng);
                 while !done.load(Ordering::Relaxed) {
-                    if let Some(kp) = Self::keygen_attempt(&mut rng) {
+                    if let Some(kp) = Self::keygen_attempt(&mut rng, &prep) {
                         if !done.swap(true, Ordering::SeqCst) {
                             let _ = tx.send(kp);
                         }
@@ -914,12 +1029,13 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         Some(crate::chain::inspect_chain(&wc, &k1, &k2, e))
     }
 
-    fn keygen_attempt<R: RngCore + CryptoRng>(
-        rng: &mut R,
-    ) -> Option<(PublicKey, SecretKey, BigUint)> {
-        let ctx = Ctx::<P, N>::new();
-        let e = ctx.e;
-        let d = ctx.d.clone();
+    /// Pairing order 3^k is enough to tell the two factors apart: f ≢ ±g
+    /// (mod 3) so the values cannot collide.  k = 8 makes the Miller loop
+    /// 13 bits instead of ~1.6 F3 bits.
+    const PAIR_K: usize = 8;
+
+    fn keygen_prep<R: RngCore + CryptoRng>(rng: &mut R) -> KeygenPrep<P, N> {
+        let e = P::E;
         let n2 = BigUint::one() << e;
         let ed = Self::ed_curve();
         let om = Omega::find(&ed, rng);
@@ -930,26 +1046,114 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         ));
         let mu = modpos(&((BigInt::from(t) + &s_d) / 2), &n2);
         let nu = modpos(&((BigInt::from(t) - &s_d) / 2), &n2);
-        let w = |x: &WPoint<F<P, N>>| om.eval(x);
-        let pd_e = eigenvector_2k(&ed, &w, &nu, e, rng); // omega-eigenvalue mu
-        let qd_e = eigenvector_2k(&ed, &w, &mu, e, rng); // omega-eigenvalue nu
+        let p1 = crate::cm::p_plus_1::<F<P, N>>();
+        let pchar = &p1 - 1u32;
+        let v2p = p1.trailing_zeros().unwrap_or(0);
+        let use_theta = v2p >= (e as u64) + 2;
+        let level = if use_theta { e + 2 } else { e };
+        let pair_k = Self::PAIR_K.min(P::F3);
         let (lo, _) = Self::secret_degree_range();
-        let pchar = crate::cm::p_plus_1::<F<P, N>>() - 1u32;
+        KeygenPrep {
+            ed,
+            om,
+            t,
+            pchar,
+            mu,
+            nu,
+            n2,
+            e,
+            use_theta,
+            level,
+            cof2: &p1 / (BigUint::one() << level),
+            cof3: &p1 / BigUint::from(3u32).pow(P::F3 as u32),
+            pair_cof: BigUint::from(3u32).pow((P::F3 - pair_k) as u32),
+            pair_n: BigUint::from(3u32).pow(pair_k as u32),
+            lo,
+        }
+    }
+
+    fn signed_pt(p: WPoint<F<P, N>>, neg: bool) -> WPoint<F<P, N>> {
+        if neg {
+            p.neg()
+        } else {
+            p
+        }
+    }
+
+    fn project_ev(
+        ed: &WCurve<F<P, N>>,
+        om: &Omega<F<P, N>>,
+        r: &WPoint<F<P, N>>,
+        other: &BigUint,
+        half: &BigUint,
+    ) -> Option<WPoint<F<P, N>>> {
+        let p = add_vartime(ed, &om.eval(r), &mul_vartime(ed, r, other).neg());
+        if bool::from(mul_vartime(ed, &p, half).inf) {
+            None
+        } else {
+            Some(p)
+        }
+    }
+
+    /// Recover (eps_P, eps_Q) and their order-2 images from Kummer-split
+    /// points of (P+R, Q+R, R) by trying y-signs.  The honest images satisfy
+    /// the test for exactly one pattern up to a global sign.
+    fn recover_eigen(
+        e: &WCurve<F<P, N>>,
+        a0: WPoint<F<P, N>>,
+        a1: WPoint<F<P, N>>,
+        a2: WPoint<F<P, N>>,
+        e_log: usize,
+    ) -> Option<EigenRec<P, N>> {
+        for s2 in [false, true] {
+            let c = Self::signed_pt(a2, s2);
+            for s0 in [false, true] {
+                let a = Self::signed_pt(a0, s0);
+                let p = e.sub(&a, &c);
+                let hp = e.dbl_iter(&p, e_log - 1);
+                if bool::from(hp.inf) || !bool::from(hp.y.is_zero()) {
+                    continue;
+                }
+                for s1 in [false, true] {
+                    let b = Self::signed_pt(a1, s1);
+                    let q = e.sub(&b, &c);
+                    let hq = e.dbl_iter(&q, e_log - 1);
+                    if !bool::from(hq.inf)
+                        && bool::from(hq.y.is_zero())
+                        && !bool::from(hp.x.ct_eq(&hq.x))
+                    {
+                        return Some((p, q, hp, hq));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn keygen_attempt<R: RngCore + CryptoRng>(
+        rng: &mut R,
+        prep: &KeygenPrep<P, N>,
+    ) -> Option<(PublicKey, SecretKey, BigUint)> {
+        let ed = prep.ed;
+        let om = prep.om;
+        let e = prep.e;
+        let t = prep.t;
+        let half = BigUint::one() << (e - 1);
         // 1. secret degree f, Kani scalars (c, c') with the canonical schedule
         let (f, c, cp) = loop {
-            let f = &lo + random_below(rng, &lo);
+            let f = &prep.lo + random_below(rng, &prep.lo);
             let f = if (&f % 2u32).is_zero() { f + 1u32 } else { f };
             if let Some((c, cp)) = Self::kani_scalars_for_degree(&f, false, rng) {
                 break (f, c, cp);
             }
         };
-        let g = &n2 - &f;
+        let g = &prep.n2 - &f;
         let fg = &f * &g;
         // 2. alpha = x0 + x1 omega + (y0 + y1 omega) pi with n(alpha) = f g
         let nform = |u0: &BigInt, u1: &BigInt| -> BigInt {
             u0 * u0 + BigInt::from(t) * u0 * u1 + u1 * u1 * 2
         };
-        let ymax = (&fg / &pchar).sqrt() + 1u32;
+        let ymax = (&fg / &prep.pchar).sqrt() + 1u32;
         let ymax_i = BigInt::from(ymax.clone());
         let mut alpha_c = None;
         for _ in 0..20000 {
@@ -958,13 +1162,13 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
             if y0.is_zero() && y1.is_zero() {
                 continue;
             }
-            let tt = BigInt::from(fg.clone()) - BigInt::from(pchar.clone()) * nform(&y0, &y1);
+            let tt = BigInt::from(fg.clone()) - BigInt::from(prep.pchar.clone()) * nform(&y0, &y1);
             if tt <= BigInt::zero() {
                 continue;
             }
             let tt = tt.to_biguint().unwrap();
             let r7 = (&tt % 7u32).to_u64_digits().first().copied().unwrap_or(0);
-            if ![1u64, 2, 4].contains(&r7) || !is_probable_prime(&tt, rng, 2) {
+            if ![1u64, 2, 4].contains(&r7) || !is_probable_prime(&tt, rng, 0) {
                 continue;
             }
             // x^2 + 7 y^2 = T  ->  x0 + x1 omega = (x - t y) + 2 y omega
@@ -994,16 +1198,53 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
             let b = add_vartime(&ed, &mulz(&pp, &y0), &mulz(&om.eval(&pp), &y1));
             add_vartime(&ed, &a, &b)
         };
-        // 3. Kani: kernel {([f] R, alpha R)}
-        let (r1, r2) = torsion_basis(&ed, 2, e, rng);
+        // 3. Kani: kernel {([f] R, alpha R)}.
+        // When p+1 has two spare bits of 2-torsion, sample the basis at order
+        // 2^{e+2} and evaluate the (2^e, 2^e)-isogeny in the theta model.
         let fz = BigInt::from(f.clone());
+        let (r1, r2) = torsion_basis_cof(&ed, 2, prep.level, &prep.cof2, rng);
+        let r1e = if prep.use_theta {
+            ed.dbl_iter(&r1, 2)
+        } else {
+            r1
+        };
+        let r2e = if prep.use_theta {
+            ed.dbl_iter(&r2, 2)
+        } else {
+            r2
+        };
+        let w = |x: &WPoint<F<P, N>>| om.eval(x);
+        let pd_e = Self::project_ev(&ed, &om, &r1e, &prep.nu, &half)
+            .or_else(|| Self::project_ev(&ed, &om, &r2e, &prep.nu, &half))
+            .unwrap_or_else(|| eigenvector_2k(&ed, &w, &prep.nu, e, rng));
+        let qd_e = Self::project_ev(&ed, &om, &r1e, &prep.mu, &half)
+            .or_else(|| Self::project_ev(&ed, &om, &r2e, &prep.mu, &half))
+            .unwrap_or_else(|| eigenvector_2k(&ed, &w, &prep.mu, e, rng));
         let k1 = (mulz(&r1, &fz), alpha(&r1));
         let k2 = (mulz(&r2, &fz), alpha(&r2));
-        if !first_step_glues(&ed, &k1, &k2, e) {
+        let (g1, g2) = if prep.use_theta {
+            (
+                (ed.dbl_iter(&k1.0, 2), ed.dbl_iter(&k1.1, 2)),
+                (ed.dbl_iter(&k2.0, 2), ed.dbl_iter(&k2.1, 2)),
+            )
+        } else {
+            (k1, k2)
+        };
+        if !first_step_glues(&ed, &g1, &g2, e) {
             return None;
         }
-        let r3 = point_of_order(&ed, 3, P::F3, rng);
-        let (y3a, y3b) = torsion_basis(&ed, 3, P::F3, rng);
+        let (y3a_full, y3b_full) = torsion_basis_cof(&ed, 3, P::F3, &prep.cof3, rng);
+        let r3 = y3a_full;
+        let y3a = if prep.pair_cof.is_one() {
+            y3a_full
+        } else {
+            mul_vartime(&ed, &y3a_full, &prep.pair_cof)
+        };
+        let y3b = if prep.pair_cof.is_one() {
+            y3b_full
+        } else {
+            mul_vartime(&ed, &y3b_full, &prep.pair_cof)
+        };
         let o = WPoint::infinity();
         let payload = [
             (add_vartime(&ed, &pd_e, &r3), o),
@@ -1012,54 +1253,56 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
             (y3a, o),
             (y3b, o),
         ];
-        let (ea, eb, imgs) = keygen_chain(&ed, &k1, &k2, e, &payload);
-        // 4. which factor carries eps (degree f)?  e(eps X, eps Y) = e(X, Y)^f
-        let base = weil_sq(&ed, &y3a, &y3b, &d);
-        let want = base.pow_public(&(&f % &d).to_u64_digits());
-        let e1 = weil_sq(&ea, &imgs[3].0, &imgs[4].0, &d);
-        let e2 = weil_sq(&eb, &imgs[3].1, &imgs[4].1, &d);
-        let (curve, eps_p, eps_q) = if e1 == want {
-            (
-                ea,
-                ea.sub(&imgs[0].0, &imgs[2].0),
-                ea.sub(&imgs[1].0, &imgs[2].0),
-            )
-        } else if e2 == want {
-            (
-                eb,
-                eb.sub(&imgs[0].1, &imgs[2].1),
-                eb.sub(&imgs[1].1, &imgs[2].1),
-            )
+        let (ea, eb, imgs) = if prep.use_theta {
+            keygen_chain_theta(&ed, &k1, &k2, e, &payload)?
         } else {
-            return None;
+            keygen_chain(&ed, &g1, &g2, e, &payload)
         };
+        // 4. which factor carries eps (degree f)?  Short pairing of order 3^k.
+        let base = weil_sq(&ed, &y3a, &y3b, &prep.pair_n);
+        let want = base.pow_public(&(&f % &prep.pair_n).to_u64_digits());
+        let inv_want = want.invert();
+        let matches = |z: &F<P, N>| *z == want || *z == inv_want;
+        let e1 = weil_sq(&ea, &imgs[3].0, &imgs[4].0, &prep.pair_n);
+        let picked = if matches(&e1) {
+            Some((ea, imgs[0].0, imgs[1].0, imgs[2].0))
+        } else {
+            let e2 = weil_sq(&eb, &imgs[3].1, &imgs[4].1, &prep.pair_n);
+            if matches(&e2) {
+                Some((eb, imgs[0].1, imgs[1].1, imgs[2].1))
+            } else {
+                None
+            }
+        };
+        let (curve, a0, a1, a2) = picked?;
+        let (eps_p, eps_q, t1, t2) = Self::recover_eigen(&curve, a0, a1, a2, e)?;
         // 5. Montgomery model (B = 1, correct twist) of E_A
-        let half = BigUint::one() << (e - 1);
-        let t1 = mul_vartime(&curve, &eps_p, &half);
-        let t2 = mul_vartime(&curve, &eps_q, &half);
         let roots = [t1.x, t2.x, -curve.a2 - t1.x - t2.x];
         let mut model = None;
         for r in roots {
             let ap = r.mul_small(3) + curve.a2;
             let bp = (r.mul_small(3) + curve.a2.double()) * r + curve.a4;
             let (s, ok) = bp.sqrt();
-            if !bool::from(ok) || !bool::from(s.is_square()) {
+            if !bool::from(ok) {
+                continue;
+            }
+            let (_, sok) = s.sqrt();
+            if !bool::from(sok) {
                 continue;
             }
             let si = s.invert();
             let a_m = ap * si;
-            // twist check: a random x on the model has [p+1] x = O
             let wm = WCurve::from_montgomery(a_m);
             let rp = crate::cm::random_point(&wm, rng);
-            if bool::from(mul_vartime(&wm, &rp, &(&pchar + 1u32)).inf) {
+            if bool::from(mul_vartime(&wm, &rp, &(&prep.pchar + 1u32)).inf) {
                 model = Some((r, si, a_m));
                 break;
             }
         }
         let (r0, si, a_m) = model?;
         // 6. random diagonal rescaling of the eigenbasis
-        let l1 = random_below(rng, &n2) | BigUint::one();
-        let l2 = random_below(rng, &n2) | BigUint::one();
+        let l1 = random_below(rng, &prep.n2) | BigUint::one();
+        let l2 = random_below(rng, &prep.n2) | BigUint::one();
         let pp = mul_vartime(&curve, &eps_p, &l1);
         let qq = mul_vartime(&curve, &eps_q, &l2);
         let pq = curve.sub(&pp, &qq);
@@ -1071,29 +1314,60 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         rng.fill_bytes(&mut z);
         let sk = Self::secret_key_from_parts(&pk_bytes, &f, &c, &cp, false, z);
         let pk = PublicKey { bytes: pk_bytes };
-        // 8. self-test (one encapsulation must decapsulate)
-        let (ctx_, k) = Self::encaps(&pk, rng)?;
-        if Self::decaps(&sk, &ctx_) != k {
+        // Variable-time correctness check (keygen only). A key that fails one
+        // honest encaps/decaps round trip is rejected and the attempt retried.
+        let (ct, mut ss_enc) = Self::encaps(&pk, rng)?;
+        let mut ss_dec = Self::decaps(&sk, &ct);
+        let ok = ss_enc == ss_dec;
+        ss_enc.zeroize();
+        ss_dec.zeroize();
+        if !ok {
             return None;
         }
         Some((pk, sk, f))
     }
 }
 
-pub(crate) fn _unused(_: MontCurve<Fp2<crate::params::Toy16Fp, 4>>) {}
+type EigenRec<P, const N: usize> = (
+    WPoint<F<P, N>>,
+    WPoint<F<P, N>>,
+    WPoint<F<P, N>>,
+    WPoint<F<P, N>>,
+);
+
+struct KeygenPrep<P: ParamSet<N>, const N: usize> {
+    ed: WCurve<F<P, N>>,
+    om: Omega<F<P, N>>,
+    t: i64,
+    pchar: BigUint,
+    mu: BigUint,
+    nu: BigUint,
+    n2: BigUint,
+    e: usize,
+    use_theta: bool,
+    level: usize,
+    cof2: BigUint,
+    cof3: BigUint,
+    pair_cof: BigUint,
+    pair_n: BigUint,
+    lo: BigUint,
+}
+
+pub(crate) fn _unused(_: MontCurve<Fp2<crate::params::L1Fp, 21>>) {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::params::Toy16;
+    use crate::cm::point_of_order;
+    use crate::params::L1;
     use rand_core::OsRng;
 
     #[test]
     fn scalar_recovery_handles_minus_one_and_zero() {
-        let a = F::<Toy16, 4>::zero();
+        let a = F::<L1, 21>::zero();
         let e = WCurve::from_montgomery(a);
         let mut rng = OsRng;
-        for (l, exponent) in [(2u32, Toy16::E), (3u32, Toy16::F3)] {
+        for (l, exponent) in [(2u32, L1::E), (3u32, L1::F3)] {
             let p = point_of_order(&e, l, exponent, &mut rng);
             let order = BigUint::from(l).pow(exponent as u32);
             let bits = order.bits() as usize;
@@ -1112,45 +1386,45 @@ mod tests {
     fn rejects_invalid_public_curves_and_basis() {
         let mut rng = OsRng;
         let zero = PublicKey {
-            bytes: vec![0; EigenSeta::<Toy16, 4>::pk_bytes()],
+            bytes: vec![0; EigenSeta::<L1, 21>::pk_bytes()],
         };
-        assert!(EigenSeta::<Toy16, 4>::encaps(&zero, &mut rng).is_none());
+        assert!(EigenSeta::<L1, 21>::encaps(&zero, &mut rng).is_none());
         let singular = PublicKey {
             bytes: fbytes(&[
-                F::<Toy16, 4>::from_i64(2),
-                F::<Toy16, 4>::zero(),
-                F::<Toy16, 4>::zero(),
-                F::<Toy16, 4>::zero(),
+                F::<L1, 21>::from_i64(2),
+                F::<L1, 21>::zero(),
+                F::<L1, 21>::zero(),
+                F::<L1, 21>::zero(),
             ]),
         };
-        assert!(EigenSeta::<Toy16, 4>::encaps(&singular, &mut rng).is_none());
+        assert!(EigenSeta::<L1, 21>::encaps(&singular, &mut rng).is_none());
     }
 
     #[test]
-    fn theta_decaps_round_trips_toy16() {
+    fn theta_decaps_round_trips_l1() {
         use crate::drbg::Drbg;
         let mut rng = Drbg::for_vector("theta-kem-roundtrip", 0);
-        let (pk, sk) = EigenSeta::<Toy16, 4>::keygen(&mut rng);
-        let (ct, ss) = EigenSeta::<Toy16, 4>::encaps(&pk, &mut rng).unwrap();
-        assert_eq!(EigenSeta::<Toy16, 4>::decaps(&sk, &ct), ss);
+        let (pk, sk) = EigenSeta::<L1, 21>::keygen(&mut rng);
+        let (ct, ss) = EigenSeta::<L1, 21>::encaps(&pk, &mut rng).unwrap();
+        assert_eq!(EigenSeta::<L1, 21>::decaps(&sk, &ct), ss);
     }
 
     #[test]
-    fn parallel_keygen_jobs_toy16() {
-        let (pk, sk) = EigenSeta::<Toy16, 4>::keygen_with_jobs(2);
+    fn parallel_keygen_jobs_l1() {
+        let (pk, sk) = EigenSeta::<L1, 21>::keygen_with_jobs(2);
         let mut rng = OsRng;
-        let (ct, ss) = EigenSeta::<Toy16, 4>::encaps(&pk, &mut rng).unwrap();
-        assert_eq!(EigenSeta::<Toy16, 4>::decaps(&sk, &ct), ss);
+        let (ct, ss) = EigenSeta::<L1, 21>::encaps(&pk, &mut rng).unwrap();
+        assert_eq!(EigenSeta::<L1, 21>::decaps(&sk, &ct), ss);
     }
 
     /// Probe δ_corr: several kernel scalars, including 0 and d−1, round-trip
     /// through the theta decapsulation path. Not a proof that δ_corr = 0.
     #[test]
-    fn toy16_recovers_several_kernel_scalars() {
+    fn l1_recovers_several_kernel_scalars() {
         use crate::drbg::Drbg;
-        let mut rng = Drbg::for_vector("delta-corr-toy16", 0);
-        let (pk, sk) = EigenSeta::<Toy16, 4>::keygen(&mut rng);
-        let d = BigUint::from(3u32).pow(Toy16::F3 as u32);
+        let mut rng = Drbg::for_vector("delta-corr-l1", 0);
+        let (pk, sk) = EigenSeta::<L1, 21>::keygen(&mut rng);
+        let d = BigUint::from(3u32).pow(L1::F3 as u32);
         let mut scalars = vec![
             BigUint::from(0u32),
             BigUint::from(1u32),
@@ -1161,11 +1435,11 @@ mod tests {
         ];
         scalars.push(d.clone() / 2u32);
         for s in scalars {
-            let ct = EigenSeta::<Toy16, 4>::encrypt_scalar(&pk, &s).unwrap();
-            let got = EigenSeta::<Toy16, 4>::recover_s(&sk, &ct).expect("recover");
-            assert_eq!(EigenSeta::<Toy16, 4>::scalar_to_biguint(&got) % &d, s % &d);
-            let k1 = EigenSeta::<Toy16, 4>::decaps(&sk, &ct);
-            let k2 = EigenSeta::<Toy16, 4>::decaps(&sk, &ct);
+            let ct = EigenSeta::<L1, 21>::encrypt_scalar(&pk, &s).unwrap();
+            let got = EigenSeta::<L1, 21>::recover_s(&sk, &ct).expect("recover");
+            assert_eq!(EigenSeta::<L1, 21>::scalar_to_biguint(&got) % &d, s % &d);
+            let k1 = EigenSeta::<L1, 21>::decaps(&sk, &ct);
+            let k2 = EigenSeta::<L1, 21>::decaps(&sk, &ct);
             assert_eq!(k1, k2);
         }
     }

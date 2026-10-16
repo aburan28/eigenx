@@ -11,16 +11,6 @@ macro_rules! with_set {
     ($id:expr, $P:ident, $N:ident, $body:block) => {{
         use $crate::wire::SetId;
         match $id {
-            SetId::Toy16 => {
-                type $P = $crate::params::Toy16;
-                const $N: usize = 4;
-                $body
-            }
-            SetId::Toy32 => {
-                type $P = $crate::params::Toy32;
-                const $N: usize = 6;
-                $body
-            }
             SetId::L1 => {
                 type $P = $crate::params::L1;
                 const $N: usize = 21;

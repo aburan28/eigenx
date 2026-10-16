@@ -1,6 +1,6 @@
 //! The cost model must put every named parameter set at or above its
 //! declared classical security level, and the quantum-hardened sets at or
-//! above it in quantum queries as well.  The toy sets are excluded.
+//! above it in quantum queries as well.
 
 use eigen_seta::security::{
     aes_grover_gates_log2, classical_floor_log2, estimate, quantum_gate_floor_log2,
@@ -15,9 +15,6 @@ fn parameter_sets_meet_their_levels() {
         let s = set_info(id);
         let costs = estimate(&s);
         println!("{}", render(&s, &costs));
-        if s.lambda < 128 {
-            continue;
-        }
         let cf = classical_floor_log2(&costs);
         assert!(
             cf >= s.lambda as f64,

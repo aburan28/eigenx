@@ -49,9 +49,8 @@ that applies. All timings below are one core of an Apple laptop.
 
 | What | Command | Expect | Time |
 |---|---|---|---|
-| Whole test suite (KEM, KATs, hostile inputs, CLI, toy attacks, cost-model assertions) | `cargo test --release` | all green; `tests/security.rs` prints the attack table and the MAXDEPTH comparison | ≈5 min + build |
+| Whole test suite (KEM, KATs, hostile inputs, CLI, cost-model assertions) | `cargo test --release` | all green; `tests/security.rs` prints the attack table and the MAXDEPTH comparison | ≈5 min + build |
 | Attack cost table (paper §3, §5.2) | `cargo run --release --example security_estimate` | the table in §5.2, to one decimal | <1 s |
-| Toy-scale attack report (paper §4) | `cargo run --release --example cryptanalysis -- 3 4` | `structural checks 3/3, key-from-degree 3/3, MITM 3/3, Kani4 3/3`; near-miss table with `decaps_ok`, `early_split`, `final_split` all 0 for every k and 6/6 for the true f | ≈4–6 min |
 | FO IND-CCA writeup | read `docs/FO_PROOF.md` | HHK reduction under OW-CPA + key secrecy + δ_corr | — |
 | Parameter regeneration (paper §2, C9) | `cargo run --release --example gen_params > /tmp/p.rs && diff /tmp/p.rs src/params_generated.rs` | no output from `diff` | ≈10 min |
 | L1 round trip from the CLI | see the README's first code block | shared secrets and plaintext match | keygen 30 s, decaps 8 s |
@@ -86,7 +85,7 @@ still useful; please leave them.
 
 A finding that changes a cost becomes a row (or a changed formula) in
 `src/security.rs`, with the source cited in the note string and in
-`docs/SECURITY.md` §9. A finding that can be run at toy scale becomes a
+`docs/SECURITY.md` §9. A finding that changes an attack becomes a
 function in `src/cryptanalysis/` and a test. A finding that breaks a
 parameter set makes `tests/security.rs` fail until the set is regenerated
 or withdrawn. The paper's revision number and commit hash at the top are

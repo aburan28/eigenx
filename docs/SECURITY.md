@@ -6,16 +6,15 @@ this document and as issues using the "Cryptanalysis finding" template;
 `docs/REVIEW.md` explains how to reproduce every number here.
 
 Status of this document: an internal analysis by the authors of the scheme,
-with every attack that we know of costed, the two assumptions that the cost
-model rests on tested experimentally at toy scale, and the literature that
+with every attack that we know of costed, and the literature that
 each number depends on cited. **It is not a security proof and it has not
 been reviewed by anyone outside the project.** Section 8 lists what is and
 is not established.
 
 The numbers in this document are produced by `cargo run --release --example
-security_estimate` (cost model, `src/security.rs`) and `cargo run --release
---example cryptanalysis` (toy-scale attacks, `src/cryptanalysis/`), and
-asserted in `tests/security.rs` and `tests/cryptanalysis.rs`.
+security_estimate` (cost model, `src/security.rs`) and asserted in
+`tests/security.rs`. Attack procedures live in `src/cryptanalysis/` and are
+not part of the KEM.
 
 ## 0. Claims under review
 
@@ -26,10 +25,10 @@ literature.
 
 | # | Claim | Evidence | Kind |
 |---|---|---|---|
-| C1 | The secret key is a deterministic function of the secret degree f and public data; it has no entropy beyond f. | `EigenSeta::secret_keys_from_degree`; `tests/cryptanalysis.rs::key_is_a_function_of_the_secret_degree`; §4.1 | measured (Toy16, every run) |
-| C2 | A wrong degree f′ is rejected only at the final splitting step of the decapsulation chain, independently of how many low bits it shares with f; no bit-by-bit recovery of f. | `cryptanalysis::degree::near_miss_experiment`, `chain::inspect_chain`; §4.2 | measured (Toy16, k ≤ 40 of 50 bits) |
+| C1 | The secret key is a deterministic function of the secret degree f and public data; it has no entropy beyond f. | `EigenSeta::secret_keys_from_degree`; §4 | calculation |
+| C2 | A wrong degree f′ is rejected only at the final splitting step of the decapsulation chain, independently of how many low bits it shares with f; no bit-by-bit recovery of f. | `cryptanalysis::degree::near_miss_experiment`, `chain::inspect_chain`; §4 | calculation (the schedule does not branch on low bits of f) |
 | C3 | Message recovery by mask guessing costs 2^e′ Kani evaluations with 2^(2e′) ≥ d classically and 2^(e′/2) under Grover, and is the binding attack on L1/L3/L5. | §3.1 B; `security::estimate` | calculation (FESTA's classical analysis + Grover); the Kani recovery step given correct masks is **not** implemented here |
-| C4 | Generic meet-in-the-middle on the sender's 3^F3-isogeny costs d^{1/2}. | `cryptanalysis::mitm3`; §4.3 | measured (Toy16, 3/3 recoveries) |
+| C4 | Generic meet-in-the-middle on the sender's 3^F3-isogeny costs d^{1/2}. | `cryptanalysis::mitm3`; §3.1 A | calculation |
 | C5 | Key recovery by guessing f costs 2^(f_bits − 2)/ln(2^E) decapsulations; the sum-of-two-squares filter is the only cheap pruning. | §3.2 C; C1, C2 | calculation on top of C1, C2 |
 | C6 | No sub-square-root quantum speed-up is available: the attacker holds no effective orientation, so Kuperberg does not apply; Tani is no better than vOW with memory costed. | §3.2 E, §5.2; Wesolowski 2021/1583, Jaques–Schanck | literature |
 | C7 | Every known attack costs ≥ 2^λ classically on L1/L3/L5/Q3/Q5; L1/L3/L5 meet NIST categories 1/3/5 in the gate-count-under-MAXDEPTH metric; Q3/Q5 (and L5 as the level-1 set) cost ≥ 2^λ quantum queries. | `security::estimate`; `tests/security.rs`; §5 | calculation under the oracle costs of §5.1 |
@@ -65,12 +64,10 @@ Primes are nothing-up-my-sleeve: `c` is the smallest positive integer such
 that `p = 2^(E+1)·3^F3·c − 1` passes the fixed-base Miller–Rabin test in
 `ntheory::is_nums_prime` and `p ≡ 3, 5 or 6 (mod 7)`. No RNG in the search.
 Recipe and the check command: `docs/NUMS.md`. `verify_nums` confirms every
-checked-in cofactor (Toy16 through Q5) is that minimum.
+checked-in cofactor (L1 through Q5) is that minimum.
 
 | Set | λ | p bits | E | F3 | log2 d | f bits | quantum-hardened |
 |---|---|---|---|---|---|---|---|
-| Toy16 | 16 | 216 | 174 | 21 | 33.3 | 50 | no |
-| Toy32 | 32 | 369 | 297 | 41 | 65.0 | 80 | no |
 | L1 | 128 | 1341 | 1076 | 162 | 256.8 | 277 | no |
 | L3 | 192 | 1991 | 1594 | 243 | 385.1 | 409 | no |
 | L5 | 256 | 2630 | 2106 | 324 | 513.5 | 536 | no |
@@ -189,80 +186,20 @@ would have to divide f, which is secret, and the orientation is hidden.
   Restricting f to primes would cost ≈ 200× more candidates in key
   generation and is listed as an optional hardening, not applied.
 
-## 4. Experiments (toy scale)
+## 4. Attack implementations
 
-Run: `cargo run --release --example cryptanalysis -- 3 4` at Toy16 (p 216
-bits, E 174, F3 21, f 50 bits); the shorter versions are in
-`tests/cryptanalysis.rs` and run in CI.
+`src/cryptanalysis/` (`degree`, `mitm3`, `kani4`, `checks`) implements the
+attacks of §3. Nothing in that module is called by the KEM.
 
-### 4.1 The key is a function of f
-
-For every key tried (3/3 in the report run, plus every CI run),
-`secret_keys_from_degree(pk, f)` with the true f produced a key that
-decapsulated a fresh ciphertext to the right shared secret; in fact both
-sign choices of the Kani scalars gave working keys (6/6 rows), so one
-decapsulation per candidate f suffices. Per candidate f the derivation plus
-one decapsulation costs 0.08–0.38 s at Toy16 (variable-time `two_squares`,
-mostly). Consequence: the secret key has no entropy beyond f, and row C is
-exactly 2^(f_bits − 2) decapsulations.
-
-### 4.2 Wrong degrees fail only at the last step (near-miss localisation)
-
-The design note (§5.1) claimed, unverified, that a wrong eigenvalue guess
-makes the (2,2)-chain fail only at the end, so that no per-bit localisation
-of the secret is possible. `near_miss_experiment` derives keys from wrong
-degrees f′ ≡ f (mod 2^k) for k ∈ {0, 4, 8, 16, 24, 32, 40, 48} (of 50–51 bits)
-and walks the decapsulation chain with the variable-time
-`chain::inspect_chain`, which records whether the product kernel is
-isotropic, whether gluing succeeds, the first step at which the Richelot
-determinant vanishes (a premature split), and whether the scheduled final
-split occurs.
-
-Result of the report run (3 keys, 4 wrong degrees per level, 12 rows per
-level; k = 48 leaves only three residue-class slots at 50 bits and none of
-them admits Kani scalars, so that level is empty):
-
-| rows | decaps ok | product kernel ok | glue ok | early split | final split | Richelot steps |
-|---|---|---|---|---|---|---|
-| true f (6) | 6 | 6 | 6 | 0 | 6 | 168 = E − 6 |
-| k = 0, 4, 8, 16, 24, 32, 40 (12 each) | 0 | 12 | 12 | 0 | 0 | 168 |
-
-Every derived key passes the product-kernel and gluing checks, no chain
-splits early, none splits at the scheduled step, none decapsulates
-correctly; the true f splits at the scheduled step and decapsulates. So the
-per-step behaviour of the chain is identical for a wrong f′ agreeing with f
-on 0 bits and on 40 of 50 bits: the chain carries no information about f
-until the final splitting test. The claim stands at this scale; the
-structural reason is that any f′ with consistent (c, c′) gives an isotropic
-kernel of the right order, so the chain is a valid (2^E, 2^E)-isogeny of a
-different abelian surface. (Only about 1/ln(2^E) of the candidate f′ admit
-Kani scalars at all, exactly as in honest key generation; the attacker
-skips the others with cheap arithmetic, so row C counts
-2^(f_bits − 2)/ln(2^E) chain evaluations — about 2^9.5 fewer than the raw
-candidate count at L1.)
-
-### 4.3 Meet-in-the-middle on the sender's isogeny
-
-`mitm3::attack` recovers the sender's scalar s from (pk, ct) at Toy16 by
-enumerating 3^h kernels from E_A (h = ⌊F3/2⌋), hashing j-invariants, and
-matching from E_C; the recovered s is confirmed by re-encryption. Cost shape:
-3^h + 3^(F3−h) 3-isogeny chains, i.e. d^{1/2}. Report run, 3/3 keys
-recovered: 3^10 = 78 732 chains from E_A, 79 000–222 000 from E_C before the
-match (expected ≈ 3^11/2), 53 000–164 000 to extend s to the full 3^21, i.e.
-2^18–2^19 chains and 45–70 s per key at 157 µs per chain. At L1 the same
-attack is 2^128 chains.
-
-### 4.4 Mask-guess + Robert/Kani (attack B scaffolding)
-
-`cryptanalysis::kani4` finds Robert parameters `(e, a1, a2)` with
-`2^e = d + a1² + a2²`, sets `e_mask = ⌈e/2⌉ + 2`, builds `form_kernel` on
-`E_A² × E_C²`, and times one dim-2 `product_isogeny` of length
-`min(e_mask, 12)` as the per-guess oracle cost. With the honest FO masks
-(from a known `s`) it recovers `s` via the MITM stand-in; without known
-masks it times guesses and does not claim recovery. Full dim-4 theta
-evaluation is the Sage driver in `research/kani4_sage/` (Theta_dim4). At
-Toy16, CI asserts Robert params exist, the honest-mask path confirms by
-re-encryption, and a no-honest-mask run of 8 guesses claims nothing.
+`secret_keys_from_degree` rebuilds a secret key from f and public data, so
+the key has no entropy beyond f (row C). `inspect_chain` walks the fixed
+decapsulation schedule; a wrong f′ that still admits Kani scalars is an
+isotropic kernel of the right order, so the chain does not fail early and
+does not localise f bit by bit. `mitm3::attack` is generic meet-in-the-middle
+on the sender's 3^F3-isogeny: 3^h chains from E_A and 3^(F3−h) from E_C,
+minimised at h = ⌊F3/2⌋, i.e. d^{1/2}. At L1 that is 2^128 chains.
+`kani4` builds Robert parameters and a dim-2 product-isogeny oracle for the
+mask-guess attack; it does not search the masks.
 
 ## 5. Quantum security
 
@@ -357,19 +294,19 @@ until §8.1 Q3 is answered by reviewers. Tracking: `docs/ROADMAP.md`.
   honest ciphertext are rejected into the implicit-rejection key, which
   depends only on (sk, ct); malformed public keys are rejected by
   encapsulation; corrupt secret-key files are rejected by `sk_from_bytes`.
-* Known-answer tests pin the exact bytes at Toy16 (`tests/kat/`).
+* Known-answer tests pin the exact bytes at L1 (`tests/kat/`).
 
 ## 8. What is and is not established
 
 Established, with evidence in this repository:
 
-* The secret key is a deterministic function of f and public data (§4.1).
-* A wrong f′ is indistinguishable from any other wrong f′ at every step of
-  the decapsulation chain except the last, at toy scale (§4.2).
-* A generic MITM attack on the sender's isogeny works as costed (§4.3).
-* Mask-guess + Robert/Kani scaffolding at Toy16: Robert parameters,
-  `form_kernel`, product-isogeny oracle cost, honest-mask recovery
-  (`cryptanalysis::kani4`; full dim-4 theta eval in `research/kani4_sage/`).
+* The secret key is a deterministic function of f and public data (§4).
+* A wrong f′ that still admits Kani scalars does not fail the chain before
+  the scheduled split (§4).
+* A generic MITM attack on the sender's isogeny is costed in §3.1 A and
+  implemented by `mitm3`.
+* Mask-guess + Robert/Kani scaffolding: Robert parameters, `form_kernel`,
+  and a product-isogeny oracle (`cryptanalysis::kani4`).
 * Costs of all known attacks under the stated models (§3, §5).
 * Correct, constant-time decapsulation (theta-coordinate chain; Mumford
   retained for chain inspection); hostile-input behaviour (§7).

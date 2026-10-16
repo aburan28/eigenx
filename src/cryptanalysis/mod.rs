@@ -1,8 +1,7 @@
-//! Runnable cryptanalysis of Eigen-Séta at toy scale.
+//! Cryptanalysis routines for Eigen-Séta.
 //!
-//! Nothing in this module is used by the KEM.  It exists so that the cost
-//! model in `security` rests on experiments, not only on arithmetic, and so
-//! that anyone can re-run those experiments:
+//! Nothing in this module is used by the KEM. It exists so that the cost
+//! model in `security` can be checked against concrete operations:
 //!
 //! * `degree`: key recovery from the secret degree f (confirms that the key
 //!   is a function of f and public data), and the near-miss experiment that

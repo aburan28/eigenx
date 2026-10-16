@@ -45,6 +45,11 @@ pub trait Field:
     fn double(&self) -> Self {
         *self + *self
     }
+    /// x^3.  Default is a square and a product; `Fp2` overrides it.
+    #[inline(always)]
+    fn cube(&self) -> Self {
+        self.square() * *self
+    }
     #[inline(always)]
     fn mul_small(&self, k: i64) -> Self {
         *self * Self::from_i64(k)
@@ -61,8 +66,12 @@ impl<C: FpConfig<N>, const N: usize> Field for Fp2<C, N> {
     fn from_i64(v: i64) -> Self {
         Fp2::from_i64(v)
     }
+    #[inline]
     fn square(&self) -> Self {
         Fp2::square(self)
+    }
+    fn cube(&self) -> Self {
+        Fp2::cube(self)
     }
     fn invert(&self) -> Self {
         Fp2::invert(self)

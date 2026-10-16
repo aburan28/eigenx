@@ -2,10 +2,10 @@
 //! smallest cofactor c with p = 2^(E+1)·3^F3·c − 1 NUMS-prime and
 //! p ≡ 3, 5 or 6 (mod 7). See docs/NUMS.md.
 //!
-//!   cargo run --release --example verify_nums -- Toy16 Toy32 L1
+//!   cargo run --release --example verify_nums -- L1
 use eigen_seta::fp::FpConfig;
 use eigen_seta::ntheory::is_nums_prime;
-use eigen_seta::params::{ParamSet, Toy16, Toy32, L1, L3, L5, Q3, Q5};
+use eigen_seta::params::{L1, L3, L5, ParamSet, Q3, Q5};
 use num_bigint::BigUint;
 
 fn check<P: ParamSet<N>, const N: usize>() {
@@ -46,12 +46,6 @@ fn main() {
     let want: Vec<String> = std::env::args().skip(1).collect();
     let all = want.is_empty();
     let go = |n: &str| all || want.iter().any(|w| w == n);
-    if go("Toy16") {
-        check::<Toy16, 4>();
-    }
-    if go("Toy32") {
-        check::<Toy32, 6>();
-    }
     if go("L1") {
         check::<L1, 21>();
     }

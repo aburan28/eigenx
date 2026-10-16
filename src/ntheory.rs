@@ -158,6 +158,8 @@ pub fn two_squares<R: RngCore>(
     trial_bound: u32,
 ) -> Option<(BigUint, BigUint)> {
     let mut rest = m.clone();
+    // Little-endian limbs, scanned from the top for `n % q` without a heap division.
+    let mut le = rest.to_u64_digits();
     // Gaussian integer accumulator (a + b i)
     let mut acc = (BigInt::one(), BigInt::zero());
     let gmul = |x: &(BigInt, BigInt), y: &(BigInt, BigInt)| {
@@ -165,10 +167,11 @@ pub fn two_squares<R: RngCore>(
     };
     let mut q = 2u32;
     while q <= trial_bound {
-        let qb = BigUint::from(q);
         let mut e = 0;
-        while (&rest % &qb).is_zero() {
+        while !le.is_empty() && rem_u64(&le, q as u64) == 0 {
+            let qb = BigUint::from(q);
             rest /= &qb;
+            le = rest.to_u64_digits();
             e += 1;
         }
         if e > 0 {
@@ -183,7 +186,7 @@ pub fn two_squares<R: RngCore>(
                 let s = BigInt::from(q).pow(e / 2);
                 acc = (&acc.0 * &s, &acc.1 * &s);
             } else {
-                let (x, y) = cornacchia(1, &qb, rng)?;
+                let (x, y) = cornacchia(1, &BigUint::from(q), rng)?;
                 let g = (
                     BigInt::from_biguint(Sign::Plus, x),
                     BigInt::from_biguint(Sign::Plus, y),
@@ -212,6 +215,16 @@ pub fn two_squares<R: RngCore>(
         acc.0.abs().to_biguint().unwrap(),
         acc.1.abs().to_biguint().unwrap(),
     ))
+}
+
+/// `le` is little-endian base 2^64. Returns `n % q` for `q > 0`.
+fn rem_u64(le: &[u64], q: u64) -> u64 {
+    let q = q as u128;
+    let mut r = 0u128;
+    for &d in le.iter().rev() {
+        r = ((r << 64) | d as u128) % q;
+    }
+    r as u64
 }
 
 /// s with s^2 = a mod 2^k for a = 1 mod 8.

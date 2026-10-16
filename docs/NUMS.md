@@ -10,9 +10,9 @@ Inputs (all public, listed in `examples/gen_params.rs`):
 
 | Input | Meaning |
 |---|---|
-| `λ` | security level (16, 32, 128, 192, 256) |
-| `m` | `2` for L/Toy (classical), `4` for Q (quantum-query) |
-| `κ` | `8` (toys) or `12` (L/Q): low bits of the secret-degree range |
+| `λ` | security level (128, 192, 256) |
+| `m` | `2` for L (classical), `4` for Q (quantum-query) |
+| `κ` | `12`: low bits of the secret-degree range |
 
 Derived, in order, with no choices:
 
@@ -52,7 +52,7 @@ a backdoor.
 ## Check
 
 ```text
-cargo run --release --example verify_nums -- Toy16 Toy32
+cargo run --release --example verify_nums -- L1
 cargo test --release --test nums
 ```
 

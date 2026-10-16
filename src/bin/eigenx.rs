@@ -8,6 +8,7 @@
 //! eigenx encrypt --pk pk.eigx --in message.txt --out message.eigx [--aad context]
 //! eigenx decrypt --sk sk.eigx --in message.eigx --out message.txt [--aad context]
 //! eigenx info    FILE
+//! eigenx kat     --set L1 --count N --out DIR
 //! ```
 //!
 //! All objects are stored in the container format of `eigen_seta::wire`.
@@ -29,16 +30,18 @@ const USAGE: &str = "\
 eigenx: Eigen-Séta KEM / PKE command-line tool (research software)
 
   eigenx params
-  eigenx keygen  --set <Toy16|Toy32|L1|L3|L5|Q1|Q3|Q5> --pk FILE --sk FILE [--jobs N]
+  eigenx keygen  --set <L1|L3|L5|Q1|Q3|Q5> --pk FILE --sk FILE [--jobs N]
   eigenx encaps  --pk FILE --ct FILE --key FILE
   eigenx decaps  --sk FILE --ct FILE --key FILE
   eigenx encrypt --pk FILE --in FILE --out FILE [--aad STRING]
   eigenx decrypt --sk FILE --in FILE --out FILE [--aad STRING]
   eigenx info    FILE
+  eigenx kat     --set <L1|L3|L5|Q1|Q3|Q5> --count N --out DIR
 
   Q1 is an alias for L5 (quantum-hardened λ=128). Prefer L5/Q3/Q5 for PQ
   (Tier B: ≥ 2^λ quantum queries). L1/L3 meet Tier A (NIST gates) only.
-  See docs/SECURITY.md §5.3 and docs/ROADMAP.md.
+  A submission that recommends L1 or L3 as NIST Category 1 or 3 is a false
+  submission. See docs/nist/COVER.md and docs/SECURITY.md §5.3.
 ";
 
 type Res<T> = Result<T, String>;
@@ -155,7 +158,11 @@ fn cmd_keygen(m: &HashMap<String, String>) -> Res<()> {
                 .map_err(|_| "--jobs needs a positive integer".to_string())
         })
         .transpose()?
-        .unwrap_or(1);
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get().min(8))
+                .unwrap_or(1)
+        });
     if jobs == 0 {
         return Err("--jobs must be ≥ 1".into());
     }
@@ -247,6 +254,38 @@ fn cmd_decrypt(m: &HashMap<String, String>) -> Res<()> {
     Ok(())
 }
 
+fn cmd_kat(m: &HashMap<String, String>) -> Res<()> {
+    let set_name = need(m, "set")?;
+    let id = SetId::from_name(set_name).ok_or_else(|| format!("unknown set `{set_name}`"))?;
+    let count: u64 = need(m, "count")?
+        .parse()
+        .map_err(|_| "--count needs an integer".to_string())?;
+    if count == 0 || count > 10_000 {
+        return Err("--count must be from 1 to 10000".into());
+    }
+    let out = need(m, "out")?;
+    if matches!(set_name, "L1" | "l1" | "L3" | "l3") {
+        eprintln!(
+            "kat: {set_name} is not submitted as a NIST category. A submission that recommends L1 or L3 as NIST Category 1 or 3 is a false submission."
+        );
+    }
+    eprintln!("kat: writing {count} vector(s) to {out}");
+    with_set!(id, P, N, {
+        let written =
+            eigen_seta::kat_nist::write_kem_kat::<P, N>(std::path::Path::new(out), count, |i| {
+                eprintln!("kat: vector {i}")
+            })?;
+        eprintln!(
+            "kat: wrote {} vectors (encaps seed {} bytes)",
+            written.count, written.encaps_seed_bytes
+        );
+        eprintln!("kat: {}", written.req.display());
+        eprintln!("kat: {}", written.intermediate.display());
+        eprintln!("kat: {}", written.rsp.display());
+    });
+    Ok(())
+}
+
 fn cmd_info(path: &str) -> Res<()> {
     let bytes = read(path)?;
     let (h, payload) = wire::decode(&bytes).map_err(|e| format!("{path}: {e}"))?;
@@ -294,6 +333,7 @@ fn run(args: &[String]) -> Res<()> {
         "decaps" => cmd_decaps(&parse_flags(rest)?),
         "encrypt" => cmd_encrypt(&parse_flags(rest)?),
         "decrypt" => cmd_decrypt(&parse_flags(rest)?),
+        "kat" => cmd_kat(&parse_flags(rest)?),
         "info" => match rest {
             [p] => cmd_info(p),
             _ => Err("info takes exactly one FILE".into()),

@@ -22,6 +22,7 @@ pub mod fp;
 pub mod fp2;
 pub mod isog3;
 pub mod kani;
+pub mod kat_nist;
 pub mod kem;
 pub mod mont;
 pub mod ntheory;

@@ -1,4 +1,4 @@
-//! Mumford [`decaps_chain`] vs theta [`decaps_chain_theta`] on Toy16.
+//! Mumford [`decaps_chain`] vs theta [`decaps_chain_theta`] on L1.
 //!
 //! Builds the same eigen-kernel sample as `tests/chain.rs` and checks that
 //! both paths return isomorphic codomains (equal j-invariants, matching
@@ -12,7 +12,7 @@ use eigen_seta::cm::{
 use eigen_seta::ct::ConstantTimeEq;
 use eigen_seta::field::Field;
 use eigen_seta::ntheory::{modpos, sqrt_mod_2power, two_squares, v2};
-use eigen_seta::params::{ParamSet, Toy16};
+use eigen_seta::params::{L1, ParamSet};
 use eigen_seta::weier::{complementary_2_torsion_xs, Isog2, ToMontgomery, WCurve, WIso, WPoint};
 use num_bigint::{BigInt, BigUint};
 use rand_core::{OsRng, RngCore};
@@ -77,11 +77,11 @@ fn montgomery_normalise_preserves_j() {
 }
 
 #[test]
-fn theta_chain_matches_mumford_toy16() {
+fn theta_chain_matches_mumford_l1() {
     let mut rng = OsRng;
     let ed = ed_curve();
     let om = Omega::find(&ed, &mut rng);
-    let big_e = Toy16::E;
+    let big_e = L1::E;
     let t = om.trace;
     let mod_e = BigUint::from(1u32) << big_e;
     let s_d = sqrt_mod_2power(
@@ -106,7 +106,7 @@ fn theta_chain_matches_mumford_toy16() {
     let kdeg = 5usize;
     let d = BigUint::from(3u32).pow(kdeg as u32);
     let k3 = point_of_order(&ed, 3, kdeg, &mut rng);
-    let (y1, y2) = torsion_basis(&ed, 3, Toy16::F3, &mut rng);
+    let (y1, y2) = torsion_basis(&ed, 3, L1::F3, &mut rng);
     let mut pts = [p, q, y1, y2];
     let ec = chain3_vartime(&ed, &k3, kdeg, &mut pts);
     let [pc, qc, x1, x2] = pts;

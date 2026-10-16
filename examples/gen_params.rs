@@ -3,7 +3,7 @@
 //! header line).
 //!
 //!   cargo run --release --example gen_params > src/params_generated.rs
-//!   cargo run --release --example gen_params -- Toy16 Toy32   # subset
+//!   cargo run --release --example gen_params -- L1 L3   # subset
 //!
 //! p = 2^(e+1) * 3^f3 * c - 1 prime with p = 3, 5, 6 (mod 7) (so the CM(-7)
 //! curve E_D, j = -3375, is supersingular), d = 3^f3 >= 2^(2 lambda), secret
@@ -19,9 +19,7 @@ use num_bigint::{BigInt, BigUint};
 /// quantum search over the masks (cost d^(1/4)) at 2^lambda.  See
 /// docs/SECURITY.md.  There is no Q1 because it would coincide with L5
 /// (4 * 128 = 2 * 256 gives the same f3 = 324 and the same prime).
-const SETS: [(&str, usize, usize, usize); 7] = [
-    ("Toy16", 16, 8, 2),
-    ("Toy32", 32, 8, 2),
+const SETS: [(&str, usize, usize, usize); 5] = [
     ("L1", 128, 12, 2),
     ("L3", 192, 12, 2),
     ("L5", 256, 12, 2),

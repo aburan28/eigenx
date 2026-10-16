@@ -99,7 +99,7 @@ re-encryption check.
 
 **Results.** Run `run-20261011T1827Z-sidechannel`, built from commit
 19c641d12 with rustc 1.97.0 in release mode with debuginfo, on x86-64 with
-glibc malloc. Toy16 parameters, 4 key seeds, each with two valid
+glibc malloc. L1 parameters, 4 key seeds, each with two valid
 ciphertexts and one foreign ciphertext. "Non-allocator" is the total minus
 the glibc allocator and `mem*` routines. Records are in
 `research/eigen_seta_rust_20261011/reports/run-20261011T1827Z-sidechannel/records/`.
@@ -136,7 +136,7 @@ The source had no branch at all: only a check of the compiled code can
 catch this class of problem.
 
 **Statistical timing test.** `examples/dudect_decaps.rs` times the secret
-phase on one Toy16 key for two classes, interleaved in random order. Class 0
+phase on one L1 key for two classes, interleaved in random order. Class 0
 is one fixed ciphertext. Class 1 is a pool of 16 fresh ciphertexts, half of
 them FO-rejected. It reports Welch's t, the dudect method. The result
 with 1,000 samples per class, in the same run:
@@ -196,7 +196,7 @@ What this check does and does not show:
   denominator, for example an intermediate divisor that is not in general
   position, the output is garbage. There is no branch or early exit, and the
   FO check rejects. For honest ciphertexts the probability is negligible at
-  real sizes. It was never observed in the Toy16, Toy32, L1, L3 or L5 runs.
+  real sizes. It was never observed in the L1, L3 or L5 runs.
   An adversary could try to induce it with crafted ciphertexts. The outcome
   is then a rejection that takes the same time, but the *rate* of such
   rejections might depend on the key, which would be a CCA-style failure

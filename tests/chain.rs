@@ -5,7 +5,7 @@ use eigen_seta::cm::{
     chain3_vartime, eigenvector_2k, mul_vartime, point_of_order, torsion_basis, Omega,
 };
 use eigen_seta::ntheory::{modpos, sqrt_mod_2power, two_squares, v2};
-use eigen_seta::params::{ParamSet, Toy16};
+use eigen_seta::params::{L1, ParamSet};
 use eigen_seta::weier::{WIso, WPoint};
 use num_bigint::{BigInt, BigUint};
 use rand_core::{OsRng, RngCore};
@@ -18,7 +18,7 @@ fn chain_matches_direct_endomorphism() {
     let mut rng = OsRng;
     let ed = ed_curve();
     let om = Omega::find(&ed, &mut rng);
-    let big_e = Toy16::E;
+    let big_e = L1::E;
     let t = om.trace;
     // eigenvalues mu, nu of omega mod 2^E: roots of x^2 - t x + 2
     let mod_e = BigUint::from(1u32) << big_e;
@@ -44,7 +44,7 @@ fn chain_matches_direct_endomorphism() {
     let kdeg = 5usize;
     let d = BigUint::from(3u32).pow(kdeg as u32);
     let k3 = point_of_order(&ed, 3, kdeg, &mut rng);
-    let (y1, y2) = torsion_basis(&ed, 3, Toy16::F3, &mut rng);
+    let (y1, y2) = torsion_basis(&ed, 3, L1::F3, &mut rng);
     let mut pts = [p, q, y1, y2];
     let ec = chain3_vartime(&ed, &k3, kdeg, &mut pts);
     let [pc, qc, x1, x2] = pts;
@@ -99,7 +99,7 @@ fn chain_matches_direct_endomorphism() {
     eprintln!("chain length {ep}: {:?}", t0.elapsed());
     assert_eq!(fc.j_invariant(), ec.j_invariant(), "codomain is not E_C");
     // direct: alpha(phi Y) = phi(d theta'(Y) + c Y),  theta' = 2 omega - t
-    let n3 = BigUint::from(3u32).pow(Toy16::F3 as u32);
+    let n3 = BigUint::from(3u32).pow(L1::F3 as u32);
     let dt = modpos(&(&c - BigInt::from(d.clone()) * t), &n3);
     let dd = d.clone();
     let alpha_y = |y: &WPoint<F>| {

@@ -101,13 +101,36 @@ fn ep_add<F: Field>(
     (e.0.add(&a.0, &b.0), e.1.add(&a.1, &b.1))
 }
 
+fn curve_is_mont<F: Field>(e: &WCurve<F>) -> bool {
+    bool::from(e.a6.is_zero()) && bool::from(e.a4.ct_eq(&F::one()))
+}
+
+fn one_dbl<F: Field>(e: &WCurve<F>, p: &WPoint<F>, n: usize, mont: bool) -> WPoint<F> {
+    if mont {
+        e.dbl_iter_mont(p, n)
+    } else {
+        e.dbl_iter(p, n)
+    }
+}
+
 #[inline(always)]
 fn ep_double_iter<F: Field>(
     e: &EllipticProduct<F>,
     a: &CouplePoint<F>,
     n: usize,
 ) -> CouplePoint<F> {
-    (e.0.dbl_iter(&a.0, n), e.1.dbl_iter(&a.1, n))
+    let mont = curve_is_mont(&e.0) && curve_is_mont(&e.1);
+    (one_dbl(&e.0, &a.0, n, mont), one_dbl(&e.1, &a.1, n, mont))
+}
+
+/// Double two couple points on the elliptic product.
+fn ep_double_pair<F: Field>(
+    e: &EllipticProduct<F>,
+    a: &CouplePoint<F>,
+    b: &CouplePoint<F>,
+    n: usize,
+) -> (CouplePoint<F>, CouplePoint<F>) {
+    (ep_double_iter(e, a, n), ep_double_iter(e, b, n))
 }
 
 #[inline(always)]
@@ -165,6 +188,7 @@ impl<F: Field> ThetaPoint<F> {
     pub fn hadamard(&self) -> (F, F, F, F) {
         to_hadamard(self.x, self.y, self.z, self.t)
     }
+    #[inline]
     pub fn squared_theta(&self) -> (F, F, F, F) {
         to_squared_theta(self.x, self.y, self.z, self.t)
     }
@@ -225,6 +249,7 @@ impl<F: Field> ThetaStructure<F> {
     }
 
     /// `P <- [2]P` in place.  Cost: 8S + 8M.
+    #[inline(always)]
     pub fn set_double_self(&self, p: &mut ThetaPoint<F>) {
         let (mut xp, mut yp, mut zp, mut tp) = p.squared_theta();
         xp = self.precom[4] * xp.square();
@@ -243,6 +268,33 @@ impl<F: Field> ThetaStructure<F> {
         p.t = t;
     }
 
+    /// Double two independent points together so their field products overlap.
+    #[inline(always)]
+    fn set_double_pair(&self, p: &mut ThetaPoint<F>, q: &mut ThetaPoint<F>) {
+        let (xp, yp, zp, tp) = p.squared_theta();
+        let (xq, yq, zq, tq) = q.squared_theta();
+        let (c0, c1, c2, c3) = (self.precom[0], self.precom[1], self.precom[2], self.precom[3]);
+        let (c4, c5, c6, c7) = (self.precom[4], self.precom[5], self.precom[6], self.precom[7]);
+        let xp = c4 * xp.square();
+        let xq = c4 * xq.square();
+        let yp = c5 * yp.square();
+        let yq = c5 * yq.square();
+        let zp = c6 * zp.square();
+        let zq = c6 * zq.square();
+        let tp = c7 * tp.square();
+        let tq = c7 * tq.square();
+        let (xp, yp, zp, tp) = to_hadamard(xp, yp, zp, tp);
+        let (xq, yq, zq, tq) = to_hadamard(xq, yq, zq, tq);
+        p.x = c0 * xp;
+        q.x = c0 * xq;
+        p.y = c1 * yp;
+        q.y = c1 * yq;
+        p.z = c2 * zp;
+        q.z = c2 * zq;
+        p.t = c3 * tp;
+        q.t = c3 * tq;
+    }
+
     pub fn double_point(&self, p: &ThetaPoint<F>) -> ThetaPoint<F> {
         let mut p2 = *p;
         self.set_double_self(&mut p2);
@@ -255,6 +307,21 @@ impl<F: Field> ThetaStructure<F> {
             self.set_double_self(&mut r);
         }
         r
+    }
+
+    #[inline(always)]
+    fn double_iter_pair(
+        &self,
+        p: &ThetaPoint<F>,
+        q: &ThetaPoint<F>,
+        n: usize,
+    ) -> (ThetaPoint<F>, ThetaPoint<F>) {
+        let mut p = *p;
+        let mut q = *q;
+        for _ in 0..n {
+            self.set_double_pair(&mut p, &mut q);
+        }
+        (p, q)
     }
 }
 
@@ -514,7 +581,7 @@ fn gluing_isogeny<F: Field>(
 /// symplectic transform is needed to avoid zero coordinates near a product
 /// structure (see the source's module comment).
 /// Cost: codomain 8S + 9M, image (per point) 4S + 4M.
-fn two_isogeny<F: Field>(
+fn two_isogeny<F: Field + Send + Sync>(
     t1: &ThetaPoint<F>,
     t2: &ThetaPoint<F>,
     image_points: &mut [ThetaPoint<F>],
@@ -545,41 +612,120 @@ fn two_isogeny<F: Field>(
         d = hd;
     }
     let codomain = ThetaStructure::new_from_coords(a, b, c, d);
-
-    for p in image_points.iter_mut() {
-        let (mut xx, mut yy, mut zz, mut tt) = p.coords();
-        if hadamard[0] {
-            let (hx, hy, hz, ht) = to_hadamard(xx, yy, zz, tt);
-            let (sx, sy, sz, st) = to_squared_theta(hx, hy, hz, ht);
-            xx = sx;
-            yy = sy;
-            zz = sz;
-            tt = st;
-        } else {
-            let (sx, sy, sz, st) = to_squared_theta(xx, yy, zz, tt);
-            xx = sx;
-            yy = sy;
-            zz = sz;
-            tt = st;
-        }
-        xx *= a_inv;
-        yy *= b_inv;
-        zz *= c_inv;
-        tt *= d_inv;
-        if hadamard[1] {
-            let (hx, hy, hz, ht) = to_hadamard(xx, yy, zz, tt);
-            xx = hx;
-            yy = hy;
-            zz = hz;
-            tt = ht;
-        }
-        p.x = xx;
-        p.y = yy;
-        p.z = zz;
-        p.t = tt;
-    }
-
+    map_isog_points(image_points, a_inv, b_inv, c_inv, d_inv, hadamard);
     codomain
+}
+
+fn eval_isog_point<F: Field>(
+    p: &mut ThetaPoint<F>,
+    a_inv: F,
+    b_inv: F,
+    c_inv: F,
+    d_inv: F,
+    hadamard: [bool; 2],
+) {
+    let (mut xx, mut yy, mut zz, mut tt) = p.coords();
+    if hadamard[0] {
+        let (hx, hy, hz, ht) = to_hadamard(xx, yy, zz, tt);
+        let (sx, sy, sz, st) = to_squared_theta(hx, hy, hz, ht);
+        xx = sx;
+        yy = sy;
+        zz = sz;
+        tt = st;
+    } else {
+        let (sx, sy, sz, st) = to_squared_theta(xx, yy, zz, tt);
+        xx = sx;
+        yy = sy;
+        zz = sz;
+        tt = st;
+    }
+    xx *= a_inv;
+    yy *= b_inv;
+    zz *= c_inv;
+    tt *= d_inv;
+    if hadamard[1] {
+        let (hx, hy, hz, ht) = to_hadamard(xx, yy, zz, tt);
+        xx = hx;
+        yy = hy;
+        zz = hz;
+        tt = ht;
+    }
+    p.x = xx;
+    p.y = yy;
+    p.z = zz;
+    p.t = tt;
+}
+
+/// Hot path of an intermediate (2,2)-step: no input Hadamard, output Hadamard.
+#[inline(always)]
+fn eval_isog_out_hadamard<F: Field>(
+    p: &mut ThetaPoint<F>,
+    a_inv: F,
+    b_inv: F,
+    c_inv: F,
+    d_inv: F,
+) {
+    let (xx, yy, zz, tt) = to_squared_theta(p.x, p.y, p.z, p.t);
+    let (hx, hy, hz, ht) = to_hadamard(xx * a_inv, yy * b_inv, zz * c_inv, tt * d_inv);
+    p.x = hx;
+    p.y = hy;
+    p.z = hz;
+    p.t = ht;
+}
+
+#[inline(always)]
+fn eval_isog_out_hadamard_pair<F: Field>(
+    p: &mut ThetaPoint<F>,
+    q: &mut ThetaPoint<F>,
+    a_inv: F,
+    b_inv: F,
+    c_inv: F,
+    d_inv: F,
+) {
+    let (px, py, pz, pt) = to_squared_theta(p.x, p.y, p.z, p.t);
+    let (qx, qy, qz, qt) = to_squared_theta(q.x, q.y, q.z, q.t);
+    let (px, py, pz, pt) = to_hadamard(px * a_inv, py * b_inv, pz * c_inv, pt * d_inv);
+    let (qx, qy, qz, qt) = to_hadamard(qx * a_inv, qy * b_inv, qz * c_inv, qt * d_inv);
+    p.x = px;
+    p.y = py;
+    p.z = pz;
+    p.t = pt;
+    q.x = qx;
+    q.y = qy;
+    q.z = qz;
+    q.t = qt;
+}
+
+fn map_isog_points<F: Field>(
+    image_points: &mut [ThetaPoint<F>],
+    a_inv: F,
+    b_inv: F,
+    c_inv: F,
+    d_inv: F,
+    hadamard: [bool; 2],
+) {
+    if hadamard == [false, true] {
+        let mut i = 0;
+        while i + 1 < image_points.len() {
+            let (left, right) = image_points.split_at_mut(i + 1);
+            eval_isog_out_hadamard_pair(
+                &mut left[i],
+                &mut right[0],
+                a_inv,
+                b_inv,
+                c_inv,
+                d_inv,
+            );
+            i += 2;
+        }
+        if i < image_points.len() {
+            eval_isog_out_hadamard(&mut image_points[i], a_inv, b_inv, c_inv, d_inv);
+        }
+        return;
+    }
+    for p in image_points.iter_mut() {
+        eval_isog_point(p, a_inv, b_inv, c_inv, d_inv, hadamard);
+    }
 }
 
 /// Special-cased (2,2)-isogeny for the step landing on a product of
@@ -860,7 +1006,7 @@ fn split_to_product<F: Field>(
 /// method with no optimised strategy.  Quadratic in `n`; for tests and
 /// small `n` only (see [`product_isogeny`] for the strategy-driven version
 /// used in `decaps_chain_theta`).
-pub fn product_isogeny_no_strategy<F: Field>(
+pub fn product_isogeny_no_strategy<F: Field + Send + Sync>(
     e1e2: &EllipticProduct<F>,
     p1p2: &CouplePoint<F>,
     q1q2: &CouplePoint<F>,
@@ -904,7 +1050,7 @@ pub fn product_isogeny_no_strategy<F: Field>(
 /// which is what lets `decaps_chain_theta` feed this the post-`prodker`
 /// state of the decapsulation chain directly (`n = e - 4` when the
 /// remaining generators have order `2^{e-2}`).
-pub fn product_isogeny<F: Field>(
+pub fn product_isogeny<F: Field + Send + Sync>(
     e1e2: &EllipticProduct<F>,
     p1p2: &CouplePoint<F>,
     q1q2: &CouplePoint<F>,
@@ -926,8 +1072,9 @@ pub fn product_isogeny<F: Field>(
 
     while prev != n - 1 {
         level.push(strategy[strat_idx]);
-        ker1 = ep_double_iter(e1e2, &ker1, strategy[strat_idx]);
-        ker2 = ep_double_iter(e1e2, &ker2, strategy[strat_idx]);
+        let stepped = ep_double_pair(e1e2, &ker1, &ker2, strategy[strat_idx]);
+        ker1 = stepped.0;
+        ker2 = stepped.1;
         kernel_couple_pts.push(ker1);
         kernel_couple_pts.push(ker2);
         prev += strategy[strat_idx];
@@ -947,11 +1094,13 @@ pub fn product_isogeny<F: Field>(
 
         while prev != (n - 1 - k) {
             level.push(strategy[strat_idx]);
-            tp1 = domain.double_iter(&tp1, strategy[strat_idx]);
-            tp2 = domain.double_iter(&tp2, strategy[strat_idx]);
+            let steps = strategy[strat_idx];
+            let stepped = domain.double_iter_pair(&tp1, &tp2, steps);
+            tp1 = stepped.0;
+            tp2 = stepped.1;
             kernel_pts.push(tp1);
             kernel_pts.push(tp2);
-            prev += strategy[strat_idx];
+            prev += steps;
             strat_idx += 1;
         }
         kernel_pts.pop();

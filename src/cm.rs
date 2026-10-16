@@ -18,10 +18,13 @@ struct Jac<F: Field> {
 fn jac_dbl<F: Field>(e: &WCurve<F>, p: &Jac<F>) -> Jac<F> {
     let z2 = p.z.square();
     let y2 = p.y.square();
-    let m = p.x.square().mul_small(3) + (e.a2 * p.x * z2).double() + e.a4 * z2.square();
+    let xx = p.x.square();
+    let m = (xx.double() + xx) + (e.a2 * p.x * z2).double() + e.a4 * z2.square();
     let z3 = (p.y * p.z).double();
-    let x3 = m.square() - e.a2 * z3.square() - (p.x * y2).mul_small(8);
-    let y3 = m * ((p.x * y2).mul_small(4) - x3) - y2.square().mul_small(8);
+    let s = p.x * y2;
+    let s4 = s.double().double();
+    let x3 = m.square() - e.a2 * z3.square() - s4.double();
+    let y3 = m * (s4 - x3) - y2.square().double().double().double();
     Jac {
         x: x3,
         y: y3,
@@ -98,31 +101,35 @@ fn jac_inf<F: Field>() -> Jac<F> {
     }
 }
 
-/// [k]P for a public scalar.  Variable time.  Four-bit windows: k doublings
-/// and about k/4 additions, instead of k/2 additions.
+/// [k]P for a public scalar.  Variable time.  Window width is 4 bits for
+/// short scalars and 6 bits once `k` is long enough that the extra table
+/// additions pay for themselves.
 pub fn mul_vartime<F: Field>(e: &WCurve<F>, p: &WPoint<F>, k: &BigUint) -> WPoint<F> {
     if bool::from(p.inf) || k.bits() == 0 {
         return WPoint::infinity();
     }
+    let bits = k.bits() as usize;
+    let w = if bits >= 400 { 6usize } else { 4usize };
+    let ntab = 1usize << w;
     let pj = to_jac(p);
-    let mut tab = [pj; 16];
+    let mut tab = vec![pj; ntab];
     tab[0] = jac_inf();
     tab[1] = pj;
-    tab[2] = jac_dbl(e, &pj);
-    for i in 3..16 {
+    for i in 2..ntab {
         tab[i] = jac_add(e, &tab[i - 1], &pj);
     }
-    let bits = k.bits() as usize;
-    let nwin = bits.div_ceil(4);
+    let nwin = bits.div_ceil(w);
     let mut r = jac_inf();
     let mut started = false;
-    for w in (0..nwin).rev() {
+    for win in (0..nwin).rev() {
         if started {
-            r = jac_dbl(e, &jac_dbl(e, &jac_dbl(e, &jac_dbl(e, &r))));
+            for _ in 0..w {
+                r = jac_dbl(e, &r);
+            }
         }
         let mut nib = 0usize;
-        for b in 0..4 {
-            let i = w * 4 + b;
+        for b in 0..w {
+            let i = win * w + b;
             if i < bits && k.bit(i as u64) {
                 nib |= 1 << b;
             }
@@ -177,11 +184,21 @@ pub fn point_of_order<F: Field, R: RngCore>(
     k: usize,
     rng: &mut R,
 ) -> WPoint<F> {
-    let lk = BigUint::from(l).pow(k as u32);
-    let cof = p_plus_1::<F>() / &lk;
+    let cof = p_plus_1::<F>() / BigUint::from(l).pow(k as u32);
+    point_of_order_cof(e, l, k, &cof, rng)
+}
+
+/// Like [`point_of_order`], with a precomputed cofactor `(p+1) / l^k`.
+pub fn point_of_order_cof<F: Field, R: RngCore>(
+    e: &WCurve<F>,
+    l: u32,
+    k: usize,
+    cof: &BigUint,
+    rng: &mut R,
+) -> WPoint<F> {
     let lk1 = BigUint::from(l).pow(k as u32 - 1);
     loop {
-        let r = mul_vartime(e, &random_point(e, rng), &cof);
+        let r = mul_vartime(e, &random_point(e, rng), cof);
         if !bool::from(mul_vartime(e, &r, &lk1).inf) {
             return r;
         }
@@ -195,11 +212,23 @@ pub fn torsion_basis<F: Field, R: RngCore>(
     k: usize,
     rng: &mut R,
 ) -> (WPoint<F>, WPoint<F>) {
+    let cof = p_plus_1::<F>() / BigUint::from(l).pow(k as u32);
+    torsion_basis_cof(e, l, k, &cof, rng)
+}
+
+/// Like [`torsion_basis`], with a precomputed cofactor `(p+1) / l^k`.
+pub fn torsion_basis_cof<F: Field, R: RngCore>(
+    e: &WCurve<F>,
+    l: u32,
+    k: usize,
+    cof: &BigUint,
+    rng: &mut R,
+) -> (WPoint<F>, WPoint<F>) {
     let lk1 = BigUint::from(l).pow(k as u32 - 1);
-    let p = point_of_order(e, l, k, rng);
+    let p = point_of_order_cof(e, l, k, cof, rng);
     let pl = mul_vartime(e, &p, &lk1);
     loop {
-        let q = point_of_order(e, l, k, rng);
+        let q = point_of_order_cof(e, l, k, cof, rng);
         let ql = mul_vartime(e, &q, &lk1);
         // independent iff [l^(k-1)]Q is not a multiple of [l^(k-1)]P
         let mut dep = false;

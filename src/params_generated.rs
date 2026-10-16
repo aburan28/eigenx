@@ -3,50 +3,6 @@
 use crate::params::ParamSet;
 use crate::fp::FpConfig;
 
-// Toy16: lambda = 16, p has 216 bits (4 limbs), e = 174, f3 = 21 (d ~ 2^33.3, d >= 2^(2 lambda)), c = 158, kappa = 8
-#[derive(Clone, Copy, Debug)]
-pub struct Toy16Fp;
-impl FpConfig<4> for Toy16Fp {
-    const MODULUS: [u64; 4] = crate::hexlimbs!("c0675d853cffffffffffffffffffffffffffffffffffffffffffff", 4);
-    const NAME: &'static str = "Toy16";
-}
-#[derive(Clone, Copy, Debug)]
-pub struct Toy16;
-impl ParamSet<4> for Toy16 {
-    const NAME: &'static str = "Toy16";
-    const LAMBDA: usize = 16;
-    type Cfg = Toy16Fp;
-    const E: usize = 174;
-    const F3: usize = 21;
-    const KAPPA: usize = 8;
-    const COFACTOR: u64 = 158;
-    const F_LO_HEX: &'static str = "3019d7614f301";
-    const ED_A4_HEX: &'static str = "c0675d853cfffffffffffffffffffffffffffffffffffffceb9c5c";
-    const ED_A6_HEX: &'static str = "28ecf4141e";
-}
-
-// Toy32: lambda = 32, p has 369 bits (6 limbs), e = 297, f3 = 41 (d ~ 2^65.0, d >= 2^(2 lambda)), c = 55, kappa = 8
-#[derive(Clone, Copy, Debug)]
-pub struct Toy32Fp;
-impl FpConfig<6> for Toy32Fp {
-    const MODULUS: [u64; 6] = crate::hexlimbs!("1b2fc30e3d206427513ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 6);
-    const NAME: &'static str = "Toy32";
-}
-#[derive(Clone, Copy, Debug)]
-pub struct Toy32;
-impl ParamSet<6> for Toy32 {
-    const NAME: &'static str = "Toy32";
-    const LAMBDA: usize = 32;
-    type Cfg = Toy32Fp;
-    const E: usize = 297;
-    const F3: usize = 41;
-    const KAPPA: usize = 8;
-    const COFACTOR: u64 = 55;
-    const F_LO_HEX: &'static str = "d97e1871e903213a8901";
-    const ED_A4_HEX: &'static str = "1b2fc30e3d206427513fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffceb9c5c";
-    const ED_A6_HEX: &'static str = "28ecf4141e";
-}
-
 // L1: lambda = 128, p has 1341 bits (21 limbs), e = 1076, f3 = 162 (d ~ 2^256.8, d >= 2^(2 lambda)), c = 144, kappa = 12
 #[derive(Clone, Copy, Debug)]
 pub struct L1Fp;

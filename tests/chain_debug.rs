@@ -4,7 +4,7 @@ use eigen_seta::chain::{graph_identity, map_pair, prodker_step, two_torsion_xs};
 use eigen_seta::cm::{eigenvector_2k, mul_vartime, torsion_basis, Omega};
 use eigen_seta::kani::{div_dbl, div_dbl_iter, div_on_curve, Glue, Richelot, Split};
 use eigen_seta::ntheory::{modpos, sqrt_mod_2power, two_squares, v2};
-use eigen_seta::params::{ParamSet, Toy16};
+use eigen_seta::params::{L1, ParamSet};
 use eigen_seta::weier::{WCurve, WPoint};
 use num_bigint::{BigInt, BigUint};
 use rand_core::OsRng;
@@ -14,7 +14,7 @@ fn chain_stepwise() {
     let mut rng = OsRng;
     let ed = ed_curve();
     let om = Omega::find(&ed, &mut rng);
-    let big_e = Toy16::E;
+    let big_e = L1::E;
     let t = om.trace;
     let mod_e = BigUint::from(1u32) << big_e;
     let s_d = BigInt::from(sqrt_mod_2power(
@@ -66,7 +66,7 @@ fn chain_stepwise() {
         mul_vartime(&ed, &tt, &cpm),
         mul_vartime(&ed, &tt, &lam_t).neg(),
     );
-    let (x1, _x2) = torsion_basis(&ed, 3, Toy16::F3, &mut rng);
+    let (x1, _x2) = torsion_basis(&ed, 3, L1::F3, &mut rng);
     let o = WPoint::infinity();
     let onp = |c1: &WCurve<F>, c2: &WCurve<F>, pr: &(WPoint<F>, WPoint<F>)| {
         bool::from(c1.on_curve(&pr.0)) && bool::from(c2.on_curve(&pr.1))

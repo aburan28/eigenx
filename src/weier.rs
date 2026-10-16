@@ -60,6 +60,18 @@ impl<F: Field> WPoint<F> {
     }
 }
 
+fn affine_from_jac<F: Field>(x: F, y: F, z: F) -> WPoint<F> {
+    let zi = z.invert();
+    let zi2 = zi.square();
+    let inf = z.is_zero();
+    let r = WPoint {
+        x: x * zi2,
+        y: y * zi2 * zi,
+        inf: Choice::from(0),
+    };
+    WPoint::conditional_select(&r, &WPoint::infinity(), inf)
+}
+
 impl<F: Field> WCurve<F> {
     pub fn new(a2: F, a4: F, a6: F) -> Self {
         WCurve { a2, a4, a6 }
@@ -127,23 +139,42 @@ impl<F: Field> WCurve<F> {
         for _ in 0..n {
             let z2 = z.square();
             let y2 = y.square();
-            let m = x.square().mul_small(3) + (self.a2 * x * z2).double() + self.a4 * z2.square();
+            let xx = x.square();
+            let m = (xx.double() + xx) + (self.a2 * x * z2).double() + self.a4 * z2.square();
             let z3 = (y * z).double();
-            let x3 = m.square() - self.a2 * z3.square() - (x * y2).mul_small(8);
-            let y3 = m * ((x * y2).mul_small(4) - x3) - y2.square().mul_small(8);
+            let s = x * y2;
+            let s4 = s.double().double();
+            let x3 = m.square() - self.a2 * z3.square() - s4.double();
+            let y3 = m * (s4 - x3) - y2.square().double().double().double();
             x = x3;
             y = y3;
             z = z3;
         }
-        let zi = z.invert();
-        let zi2 = zi.square();
-        let inf = z.is_zero();
-        let r = WPoint {
-            x: x * zi2,
-            y: y * zi2 * zi,
-            inf: Choice::from(0),
-        };
-        WPoint::conditional_select(&r, &WPoint::infinity(), inf)
+        affine_from_jac(x, y, z)
+    }
+
+    /// [`dbl_iter`] specialised to a Montgomery model (`a4 = 1`, `a6 = 0`).
+    pub fn dbl_iter_mont(&self, p: &WPoint<F>, n: usize) -> WPoint<F> {
+        let (mut x, mut y, mut z) = (
+            p.x,
+            p.y,
+            F::conditional_select(&F::one(), &F::zero(), p.inf),
+        );
+        for _ in 0..n {
+            let z2 = z.square();
+            let y2 = y.square();
+            let xx = x.square();
+            let m = (xx.double() + xx) + (self.a2 * x * z2).double() + z2.square();
+            let z3 = (y * z).double();
+            let s = x * y2;
+            let s4 = s.double().double();
+            let x3 = m.square() - self.a2 * z3.square() - s4.double();
+            let y3 = m * (s4 - x3) - y2.square().double().double().double();
+            x = x3;
+            y = y3;
+            z = z3;
+        }
+        affine_from_jac(x, y, z)
     }
 
     /// [k]P for a small public k (keygen / tests only).

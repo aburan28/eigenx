@@ -14,8 +14,8 @@ reduction is the standard HHK argument; the Eigen-Séta-specific content is
 the trapdoor assumptions and those domain separations.
 
 Correctness error: key generation self-tests one honest encapsulation, and
-`toy16_recovers_several_kernel_scalars` recovers seven kernel scalars
-(including 0 and d−1) at Toy16. That supports treating `δ_corr` as
+`l1_recovers_several_kernel_scalars` recovers seven kernel scalars
+(including 0 and d−1) at L1. That supports treating `δ_corr` as
 negligible on the keys we generate. It is not a proof for every `s` and
 every parameter set, so the theorem keeps the `q_D · δ_corr` term.
 
