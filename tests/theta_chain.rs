@@ -58,14 +58,28 @@ fn payloads_match<Fld: eigen_seta::field::Field>(
 
 #[test]
 fn montgomery_normalise_preserves_j() {
-    let a = F::from_counter(7);
-    let ec = WCurve::from_montgomery(a);
-    let xs = complementary_2_torsion_xs(&ec, F::zero());
-    // Kernel at x=0 on Montgomery; complementary are the other two.
-    let phi = Isog2::new(&ec, &F::zero());
-    let img = phi.eval(&WPoint::new(xs[0], F::zero()));
-    let img2 = phi.eval(&WPoint::new(xs[1], F::zero()));
-    let r = if bool::from(!img.inf) { img.x } else { img2.x };
+    // `ToMontgomery::from_torsion` requires the translated linear coefficient
+    // to be a square (its documented precondition, which the decapsulation
+    // chain meets).  An arbitrary A need not meet it, so take the first
+    // counter value whose 2-isogeny codomain does.
+    let mut found = None;
+    for k in 7..1000u64 {
+        let a = F::from_counter(k);
+        let ec = WCurve::from_montgomery(a);
+        let xs = complementary_2_torsion_xs(&ec, F::zero());
+        // Kernel at x=0 on Montgomery; complementary are the other two.
+        let phi = Isog2::new(&ec, &F::zero());
+        let img = phi.eval(&WPoint::new(xs[0], F::zero()));
+        let img2 = phi.eval(&WPoint::new(xs[1], F::zero()));
+        let r = if bool::from(!img.inf) { img.x } else { img2.x };
+        let e = &phi.codomain;
+        let a4p = e.a4 + e.a2.double() * r + r.square().mul_small(3);
+        if bool::from(a4p.sqrt().1) {
+            found = Some((phi, r));
+            break;
+        }
+    }
+    let (phi, r) = found.expect("a curve meeting the precondition");
     let tm = ToMontgomery::from_torsion(&phi.codomain, r);
     assert_eq!(
         tm.curve.j_invariant(),
