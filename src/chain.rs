@@ -265,8 +265,10 @@ pub fn decaps_chain_theta<F: Field + Send + Sync>(
     // Put both Isog2 codomains into Montgomery form (theta gluing/splitting
     // is derived for y^2 = x^3 + A x^2 + x).
     let (tm1, tm2) = std::thread::scope(|scope| {
-        let a = scope.spawn(|| ToMontgomery::from_torsion(&f.0.codomain, codomain_torsion_x(ec, &f.0)));
-        let b = scope.spawn(|| ToMontgomery::from_torsion(&f.1.codomain, codomain_torsion_x(ec, &f.1)));
+        let a =
+            scope.spawn(|| ToMontgomery::from_torsion(&f.0.codomain, codomain_torsion_x(ec, &f.0)));
+        let b =
+            scope.spawn(|| ToMontgomery::from_torsion(&f.1.codomain, codomain_torsion_x(ec, &f.1)));
         (a.join().expect("montgomery"), b.join().expect("montgomery"))
     });
     let map_mont = |p: &Pair<F>| (tm1.eval(&p.0), tm2.eval(&p.1));

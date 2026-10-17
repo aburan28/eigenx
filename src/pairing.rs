@@ -213,9 +213,7 @@ pub fn dlog_3k<F: Field>(base: &F, target: &F, k: usize) -> Scalar {
             bp = bp.square();
         }
         acc *= result.frob();
-        for t in 0..w {
-            digits[i + t] = td[t];
-        }
+        digits[i..(w + i)].copy_from_slice(&td[..w]);
         i += w;
     }
     // s = sum d_i 3^i by Horner (fixed width, constant time)

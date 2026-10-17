@@ -12,6 +12,9 @@
 //! * `kani4`: mask-guess + Robert/Kani message-recovery scaffolding (form
 //!   kernel, product-isogeny oracle cost; full dim-4 eval in
 //!   `research/kani4_sage/`);
+//! * `pk_test`: testing a candidate degree on the public key alone, with a
+//!   Kani chain of about 2·f_bits steps on E_A × E_A instead of a
+//!   decapsulation;
 //! * `checks`: structural conditions that known attacks on related schemes
 //!   exploit, checked on actual keys.
 //!
@@ -21,3 +24,4 @@ pub mod checks;
 pub mod degree;
 pub mod kani4;
 pub mod mitm3;
+pub mod pk_test;

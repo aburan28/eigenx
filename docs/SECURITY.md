@@ -1,6 +1,8 @@
 # Eigen-Séta v2: security analysis
 
-Revision 1, 2026-10-12, describing the implementation at commit `a204dbf`.
+Revision 1, 2026-10-12, describing the implementation at commit `a204dbf`;
+amended 2026-10-17 by the assessment in `docs/ASSESSMENT_20261017.md`
+(public-key degree test in §3.2 C, eigenbasis correction in §1 and §3.3).
 **Under review**: comments are collected on the pull request that carries
 this document and as issues using the "Cryptanalysis finding" template;
 `docs/REVIEW.md` explains how to reproduce every number here.
@@ -29,7 +31,7 @@ literature.
 | C2 | A wrong degree f′ is rejected only at the final splitting step of the decapsulation chain, independently of how many low bits it shares with f; no bit-by-bit recovery of f. | `cryptanalysis::degree::near_miss_experiment`, `chain::inspect_chain`; §4 | calculation (the schedule does not branch on low bits of f) |
 | C3 | Message recovery by mask guessing costs 2^e′ Kani evaluations with 2^(2e′) ≥ d classically and 2^(e′/2) under Grover, and is the binding attack on L1/L3/L5. | §3.1 B; `security::estimate` | calculation (FESTA's classical analysis + Grover); the Kani recovery step given correct masks is **not** implemented here |
 | C4 | Generic meet-in-the-middle on the sender's 3^F3-isogeny costs d^{1/2}. | `cryptanalysis::mitm3`; §3.1 A | calculation |
-| C5 | Key recovery by guessing f costs 2^(f_bits − 2)/ln(2^E) decapsulations; the sum-of-two-squares filter is the only cheap pruning. | §3.2 C; C1, C2 | calculation on top of C1, C2 |
+| C5 | Key recovery by guessing f costs 2^(f_bits − 2)/ln(2^E) tests; the key-generation filter is the only cheap pruning. One test is a Kani chain of ≈ 2·f_bits + 3 steps on E_A × E_A from the public key alone (amended 2026-10-17; previously one decapsulation). | §3.2 C; C1, C2; `cryptanalysis::pk_test` | calculation on top of C1, C2; chain length measured |
 | C6 | No sub-square-root quantum speed-up is available: the attacker holds no effective orientation, so Kuperberg does not apply; Tani is no better than vOW with memory costed. | §3.2 E, §5.2; Wesolowski 2021/1583, Jaques–Schanck | literature |
 | C7 | Every known attack costs ≥ 2^λ classically on L1/L3/L5/Q3/Q5; L1/L3/L5 meet NIST categories 1/3/5 in the gate-count-under-MAXDEPTH metric; Q3/Q5 (and L5 as the level-1 set) cost ≥ 2^λ quantum queries. | `security::estimate`; `tests/security.rs`; §5 | calculation under the oracle costs of §5.1 |
 | C8 | Self-pairing, lollipop and FESTA adaptive attacks do not apply as stated (disc = −7f² odd and coprime to 3; eigenlines belong to the secret α; constant-time decapsulation with implicit rejection). | §3.3; `cryptanalysis::checks`; `tests/robustness.rs`; `SIDE_CHANNELS.md` | literature + measured |
@@ -40,8 +42,12 @@ Questions we would most like reviewers to answer are in §8.1.
 ## 1. What the attacker sees
 
 Public parameters: the prime p = 2^(E+1)·3^F3·c − 1, the CM(−7) curve E_D
-(j = −3375) and a public basis of E_D[3^F3] consisting of eigenvectors of
-its degree-2 endomorphism ω.
+(j = −3375) and a public basis of E_D[2^E] consisting of eigenvectors of
+its degree-2 endomorphism ω. (An earlier revision put this eigenbasis on
+E_D[3^F3]. That is impossible: 3 is inert in Q(√−7), so ω has no eigenline
+on E_D[3]. The 3^F3-bases used by encapsulation are the canonical bases
+computed from the Montgomery coefficient alone, and the cyclic-kernel
+argument of the paper relies on τ having no eigenline modulo 3.)
 
 Public key: a curve E_A together with x(λ1·P), x(λ2·Q), x(P − Q), where
 (P, Q) is the image under the secret degree-f isogeny φ_f : E_D → E_A of a
@@ -118,6 +124,15 @@ the cost is 2^(f_bits − 2)/ln(2^E) decapsulations classically (2^265.5 at
 L1); Grover gives the square root in decapsulation-oracle queries. f_bits ≈
 2λ + 21, so this is far above A and B.
 
+The test does not need a ciphertext or a full decapsulation
+(assessment of 2026-10-17, `docs/ASSESSMENT_20261017.md`): with a candidate
+f the action of ψ_A = 2τ − t·f on the public basis is known exactly, ψ_A has
+degree 7f², and a (2^e, 2^e) Kani chain on E_A × E_A with
+2^e = 7u²f² + c² + c′² tests f. That chain has e ≈ 2·f_bits + 3 + O(1)
+steps instead of E ≈ 4·f_bits, about half the cost of the decapsulation
+oracle (`cryptanalysis::pk_test`, `examples/pk_degree_test.rs`). The
+cost model charges the shorter chain. Row C stays far from binding.
+
 Two experimental facts underpin this row (§4): the derivation from the true
 f does yield a working key (so the key has no entropy beyond f), and a wrong
 f′ fails only at the last step of the chain regardless of how many low bits
@@ -167,9 +182,10 @@ would have to divide f, which is secret, and the orientation is hidden.
   establish it.
 * **Lollipop attacks** (Castryck–Vercauteren 2023/1433): apply when a public
   basis point spans an eigenspace of Frobenius or of a *known* low-degree
-  endomorphism. Here the eigenlines are of the secret α; E_D's ω eigenbasis
-  on the 3^F3-torsion is public, but the sender's isogeny kernel ⟨P_d + s Q_d⟩
-  is not an eigenline for s ≠ 0, ∞.
+  endomorphism. Here the public eigenlines on E_A[2^E] are those of the
+  secret τ = φ_f ω φ̂_f, known only up to the scalar f. On the 3^F3-torsion
+  no endomorphism in Z[τ] has an eigenline (3 is inert in Q(√−7)), so the
+  sender's kernel ⟨P_d + s Q_d⟩ is never an eigenline of τ.
 * **FESTA adaptive attacks** (Moriya–Onuki 2023/1092; MOXZ PQCrypto 2024;
   Zhou–Xu 2024/345) need a validation or timing oracle; decapsulation here
   is constant time with implicit rejection, and `tests/robustness.rs` checks

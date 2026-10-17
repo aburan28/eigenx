@@ -123,6 +123,10 @@ pub struct DecapsPrep<Fl: Field> {
 }
 
 type F<P, const N: usize> = Fp2<<P as ParamSet<N>>::Cfg, N>;
+
+/// Montgomery coefficient of E_A and lifts of the public 2-power basis
+/// (`EigenSeta::public_basis_2`).
+pub type PublicBasis2<P, const N: usize> = (F<P, N>, WPoint<F<P, N>>, WPoint<F<P, N>>);
 type WPair<P, const N: usize> = (WPoint<F<P, N>>, WPoint<F<P, N>>);
 
 /// Public parameters derived at run time.
@@ -281,10 +285,7 @@ fn sign_pattern<P: ParamSet<N>, const N: usize>(
         let m_kg = m_kg.join().expect("weil");
         let m_qd = m_qd.join().expect("weil");
         let m_pd = m_pd.join().expect("weil");
-        (
-            weil_ratio(m_kg[0], m_qd[0]),
-            weil_ratio(m_pd[0], m_kg[1]),
-        )
+        (weil_ratio(m_kg[0], m_qd[0]), weil_ratio(m_pd[0], m_kg[1]))
     });
     let s = dlog_3k(&z1, &z2, k3);
     (ctx.modd.to_scalar_width(&ctx.modd.reduce(&s), limbs), land)
@@ -579,6 +580,23 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         let (pd, qd) = canonical_basis_3::<P, N>(a_a)?;
         let pqd = WCurve::from_montgomery(*a_a).sub(&pd, &qd);
         Some(PkBasis { pd, qd, pqd })
+    }
+
+    /// The Montgomery coefficient of E_A and lifts (P_A, Q_A) of the public
+    /// 2-power basis with x(P_A − Q_A) as published.  Public inputs only;
+    /// used by the cryptanalysis module.  `None` on a malformed public key.
+    pub fn public_basis_2(pk: &PublicKey) -> Option<PublicBasis2<P, N>> {
+        let [a, xp, xq, xpq] = parse4::<F<P, N>>(&pk.bytes)?;
+        let curve = WCurve::from_montgomery(a);
+        let p = point_from_x(&curve, xp)?;
+        let mut q = point_from_x(&curve, xq)?;
+        if !bool::from(curve.sub(&p, &q).x.ct_eq(&xpq)) {
+            q = q.neg();
+            if !bool::from(curve.sub(&p, &q).x.ct_eq(&xpq)) {
+                return None;
+            }
+        }
+        Some((a, p, q))
     }
 
     /// Check the public 2^E-basis and its differential point before an

@@ -273,8 +273,18 @@ impl<F: Field> ThetaStructure<F> {
     fn set_double_pair(&self, p: &mut ThetaPoint<F>, q: &mut ThetaPoint<F>) {
         let (xp, yp, zp, tp) = p.squared_theta();
         let (xq, yq, zq, tq) = q.squared_theta();
-        let (c0, c1, c2, c3) = (self.precom[0], self.precom[1], self.precom[2], self.precom[3]);
-        let (c4, c5, c6, c7) = (self.precom[4], self.precom[5], self.precom[6], self.precom[7]);
+        let (c0, c1, c2, c3) = (
+            self.precom[0],
+            self.precom[1],
+            self.precom[2],
+            self.precom[3],
+        );
+        let (c4, c5, c6, c7) = (
+            self.precom[4],
+            self.precom[5],
+            self.precom[6],
+            self.precom[7],
+        );
         let xp = c4 * xp.square();
         let xq = c4 * xq.square();
         let yp = c5 * yp.square();
@@ -658,13 +668,7 @@ fn eval_isog_point<F: Field>(
 
 /// Hot path of an intermediate (2,2)-step: no input Hadamard, output Hadamard.
 #[inline(always)]
-fn eval_isog_out_hadamard<F: Field>(
-    p: &mut ThetaPoint<F>,
-    a_inv: F,
-    b_inv: F,
-    c_inv: F,
-    d_inv: F,
-) {
+fn eval_isog_out_hadamard<F: Field>(p: &mut ThetaPoint<F>, a_inv: F, b_inv: F, c_inv: F, d_inv: F) {
     let (xx, yy, zz, tt) = to_squared_theta(p.x, p.y, p.z, p.t);
     let (hx, hy, hz, ht) = to_hadamard(xx * a_inv, yy * b_inv, zz * c_inv, tt * d_inv);
     p.x = hx;
@@ -708,14 +712,7 @@ fn map_isog_points<F: Field>(
         let mut i = 0;
         while i + 1 < image_points.len() {
             let (left, right) = image_points.split_at_mut(i + 1);
-            eval_isog_out_hadamard_pair(
-                &mut left[i],
-                &mut right[0],
-                a_inv,
-                b_inv,
-                c_inv,
-                d_inv,
-            );
+            eval_isog_out_hadamard_pair(&mut left[i], &mut right[0], a_inv, b_inv, c_inv, d_inv);
             i += 2;
         }
         if i < image_points.len() {

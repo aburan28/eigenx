@@ -212,6 +212,7 @@ Multiplication is the best of 15 runs and inversion the mean of 200.
 | `tests/kat/` | Known-answer vectors (regenerate with `EIGENX_UPDATE_KAT=1 cargo test --release --test kat`) |
 | `SIDE_CHANNELS.md` | Threat model and instruction-count assessment of the constant-time decapsulation path |
 | `docs/SECURITY.md` | Attack costs per parameter set, quantum analysis, what is not established; numbered claims and open questions for reviewers |
+| `docs/ASSESSMENT_20261017.md` | Assessment of 2026-10-17: verdict, ranked risks, public-key degree test, fixes |
 | `docs/FO_PROOF.md` | IND-CCA reduction for the FO transform (HHK, ROM) |
 | `docs/REVIEW.md` | For reviewers: how to reproduce every number in the analysis and where to put comments |
 | `docs/NUMS.md` | Nothing-up-my-sleeve prime recipe (smallest cofactor, fixed MR bases) |

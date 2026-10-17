@@ -2,7 +2,7 @@ mod common;
 use common::*;
 use eigen_seta::cm::{mul_vartime, torsion_basis};
 use eigen_seta::pairing::{dlog_3k, full_order_3k, weil_sq};
-use eigen_seta::params::{L1, ParamSet};
+use eigen_seta::params::{ParamSet, L1};
 use eigen_seta::weier::{WCurve, WPoint};
 use num_bigint::BigUint;
 use rand_core::{OsRng, RngCore};

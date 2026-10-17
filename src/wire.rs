@@ -56,13 +56,7 @@ pub enum SetId {
 }
 
 impl SetId {
-    pub const ALL: [SetId; 5] = [
-        SetId::L1,
-        SetId::L3,
-        SetId::L5,
-        SetId::Q3,
-        SetId::Q5,
-    ];
+    pub const ALL: [SetId; 5] = [SetId::L1, SetId::L3, SetId::L5, SetId::Q3, SetId::Q5];
     pub fn from_u8(b: u8) -> Option<SetId> {
         SetId::ALL.iter().copied().find(|s| *s as u8 == b)
     }

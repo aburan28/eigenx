@@ -6,7 +6,7 @@
 use eigen_seta::drbg::Drbg;
 use eigen_seta::fp2::Fp2;
 use eigen_seta::kem::{Ciphertext, EigenSeta, PublicKey};
-use eigen_seta::params::{L1, L1Fp, ParamSet};
+use eigen_seta::params::{L1Fp, ParamSet, L1};
 use rand_core::RngCore;
 
 type K = EigenSeta<L1, 21>;

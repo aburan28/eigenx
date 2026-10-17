@@ -9,7 +9,7 @@
 //!
 //!   cargo run --release --example dudect_decaps -- [samples_per_class]
 use eigen_seta::kem::{Ciphertext, DecapsPrep, EigenSeta, SecretKey};
-use eigen_seta::params::{L1, L1Fp};
+use eigen_seta::params::{L1Fp, L1};
 use rand_core::{OsRng, RngCore};
 use std::time::Instant;
 

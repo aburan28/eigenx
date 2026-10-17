@@ -2,7 +2,7 @@
 //! the same test via `cargo run --release --example verify_nums`.
 use eigen_seta::fp::FpConfig;
 use eigen_seta::ntheory::{is_nums_prime, NUMS_MR_BASES};
-use eigen_seta::params::{L1, ParamSet};
+use eigen_seta::params::{ParamSet, L1};
 use num_bigint::BigUint;
 
 fn minimal<P: ParamSet<N>, const N: usize>() {
