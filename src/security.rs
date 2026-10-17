@@ -119,9 +119,13 @@ pub fn estimate(s: &SetInfo) -> Vec<AttackCost> {
     // Oracle for mask guessing: one chain of e' steps on E_A x E_C.
     let e_prime = (d / 2.0).ceil();
     let mask_oracle = chain_gates_log2(e_prime as usize + 2, p);
-    // Oracle for degree search: derive the key (negligible) + one
-    // decapsulation chain of E steps.
-    let deg_oracle = chain_gates_log2(s.e, p);
+    // Oracle for degree search: a Kani chain on E_A x E_A for
+    // u*psi_A + c, psi_A = 2 tau - t f of degree 7 f^2, tests f from the
+    // public key alone (`cryptanalysis::pk_test`).  Its length is at least
+    // bits(7 f^2) + 1 = 2 f_bits + 3 or 2 f_bits + 4; charging the floor
+    // instead of the measured length (a few steps more) favours the attacker.
+    // The earlier model charged a decapsulation chain of E ~ 4 f_bits steps.
+    let deg_oracle = chain_gates_log2(2 * s.f_bits + 3, p);
     // f is odd in [lo, 2 lo): 2^(f_bits - 2) candidates, of which only
     // about 1/ln(2^E) admit Kani scalars (2^E - 7 d^2 f^2 must be a sum of
     // two squares, which honest keygen also rejection-samples for).  The

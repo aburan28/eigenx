@@ -694,7 +694,8 @@ impl<C: FpConfig<N>, const N: usize> Fp<C, N> {
         a2: &Self,
         b2: &Self,
     ) -> (Self, Self, Self) {
-        if N == 21 && C::P1_ZERO_LIMBS == 16 {
+        // As in `mul2`: only Montgomery-friendly moduli take the interleaved path.
+        if (N == 21 && C::P1_ZERO_LIMBS == 16) || C::P1_ZERO_LIMBS == 0 || N > MAX_LIMBS {
             return (a0.mul(b0), a1.mul(b1), a2.mul(b2));
         }
         let mut lo0 = [0u64; N];
@@ -738,7 +739,9 @@ impl<C: FpConfig<N>, const N: usize> Fp<C, N> {
     /// Two independent Montgomery products, interleaved. Used by `Fp2` squaring.
     #[inline(always)]
     pub(crate) fn mul2(a0: &Self, b0: &Self, a1: &Self, b1: &Self) -> (Self, Self) {
-        if N == 21 && C::P1_ZERO_LIMBS == 16 {
+        // The interleaved path below uses the friendly reduction only; any
+        // other modulus takes the generic product, as `mul` does.
+        if (N == 21 && C::P1_ZERO_LIMBS == 16) || C::P1_ZERO_LIMBS == 0 || N > MAX_LIMBS {
             return (a0.mul(b0), a1.mul(b1));
         }
         let mut lo0 = [0u64; N];

@@ -40,8 +40,12 @@ Questions we would most like reviewers to answer are in §8.1.
 ## 1. What the attacker sees
 
 Public parameters: the prime p = 2^(E+1)·3^F3·c − 1, the CM(−7) curve E_D
-(j = −3375) and a public basis of E_D[3^F3] consisting of eigenvectors of
-its degree-2 endomorphism ω.
+(j = −3375) and a public basis of E_D[2^E] consisting of eigenvectors of
+its degree-2 endomorphism ω. (An earlier revision put this eigenbasis on
+E_D[3^F3]. That is impossible: 3 is inert in Q(√−7), so ω has no eigenline
+on E_D[3]. The 3^F3-bases used by encapsulation are the canonical bases
+computed from the Montgomery coefficient alone, and the cyclic-kernel
+argument of the paper relies on τ having no eigenline modulo 3.)
 
 Public key: a curve E_A together with x(λ1·P), x(λ2·Q), x(P − Q), where
 (P, Q) is the image under the secret degree-f isogeny φ_f : E_D → E_A of a
@@ -118,6 +122,15 @@ the cost is 2^(f_bits − 2)/ln(2^E) decapsulations classically (2^265.5 at
 L1); Grover gives the square root in decapsulation-oracle queries. f_bits ≈
 2λ + 21, so this is far above A and B.
 
+The test does not need a ciphertext or a full decapsulation
+(assessment of 2026-10-17, `docs/ASSESSMENT_20261017.md`): with a candidate
+f the action of ψ_A = 2τ − t·f on the public basis is known exactly, ψ_A has
+degree 7f², and a (2^e, 2^e) Kani chain on E_A × E_A with
+2^e = 7u²f² + c² + c′² tests f. That chain has e ≈ 2·f_bits + 3 + O(1)
+steps instead of E ≈ 4·f_bits, about half the cost of the decapsulation
+oracle (`cryptanalysis::pk_test`, `examples/pk_degree_test.rs`). The
+cost model charges the shorter chain. Row C stays far from binding.
+
 Two experimental facts underpin this row (§4): the derivation from the true
 f does yield a working key (so the key has no entropy beyond f), and a wrong
 f′ fails only at the last step of the chain regardless of how many low bits
@@ -167,9 +180,10 @@ would have to divide f, which is secret, and the orientation is hidden.
   establish it.
 * **Lollipop attacks** (Castryck–Vercauteren 2023/1433): apply when a public
   basis point spans an eigenspace of Frobenius or of a *known* low-degree
-  endomorphism. Here the eigenlines are of the secret α; E_D's ω eigenbasis
-  on the 3^F3-torsion is public, but the sender's isogeny kernel ⟨P_d + s Q_d⟩
-  is not an eigenline for s ≠ 0, ∞.
+  endomorphism. Here the public eigenlines on E_A[2^E] are those of the
+  secret τ = φ_f ω φ̂_f, known only up to the scalar f. On the 3^F3-torsion
+  no endomorphism in Z[τ] has an eigenline (3 is inert in Q(√−7)), so the
+  sender's kernel ⟨P_d + s Q_d⟩ is never an eigenline of τ.
 * **FESTA adaptive attacks** (Moriya–Onuki 2023/1092; MOXZ PQCrypto 2024;
   Zhou–Xu 2024/345) need a validation or timing oracle; decapsulation here
   is constant time with implicit rejection, and `tests/robustness.rs` checks
