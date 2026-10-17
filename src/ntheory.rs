@@ -66,8 +66,60 @@ pub fn is_nums_prime(n: &BigUint) -> bool {
     miller_rabin(n, &bases)
 }
 
-/// Miller–Rabin with the NUMS bases plus `extra` random bases.
+/// Odd primes in (251, 2^16), packed into groups whose product fits a u64,
+/// for [`sieve_rejects`].
+fn sieve_groups() -> &'static [(u64, Vec<u64>)] {
+    static G: std::sync::OnceLock<Vec<(u64, Vec<u64>)>> = std::sync::OnceLock::new();
+    G.get_or_init(|| {
+        let lim = 1usize << 16;
+        let mut comp = vec![false; lim];
+        let mut groups: Vec<(u64, Vec<u64>)> = Vec::new();
+        let (mut m, mut cur) = (1u64, Vec::new());
+        for i in 2..lim {
+            if comp[i] {
+                continue;
+            }
+            for j in (i * i..lim).step_by(i) {
+                comp[j] = true;
+            }
+            if i <= 251 {
+                continue;
+            }
+            match m.checked_mul(i as u64) {
+                Some(mm) => m = mm,
+                None => {
+                    groups.push((m, std::mem::take(&mut cur)));
+                    m = i as u64;
+                }
+            }
+            cur.push(i as u64);
+        }
+        groups.push((m, cur));
+        groups
+    })
+}
+
+/// True when `n` has a prime factor in (251, 2^16) other than itself: one
+/// multi-precision remainder per group of primes instead of one modular
+/// exponentiation.  Rejects only composites.
+fn sieve_rejects(n: &BigUint) -> bool {
+    let le = n.to_u64_digits();
+    let small = le.len() == 1 && le[0] < 1 << 16;
+    sieve_groups().iter().any(|(m, ps)| {
+        let r = rem_u64(&le, *m);
+        ps.iter()
+            .any(|&q| r.is_multiple_of(q) && !(small && le[0] == q))
+    })
+}
+
+/// Miller–Rabin with the NUMS bases plus `extra` random bases.  Candidates
+/// with a prime factor below 2^16 are rejected by trial division first; this
+/// only removes composites, so it accepts the same numbers as Miller–Rabin
+/// alone except composites that are strong pseudoprimes to every base.
 pub fn is_probable_prime<R: RngCore>(n: &BigUint, rng: &mut R, extra: usize) -> bool {
+    if sieve_rejects(n) {
+        return false;
+    }
     let mut bases: Vec<BigUint> = NUMS_MR_BASES.iter().copied().map(BigUint::from).collect();
     if *n > BigUint::from(3u32) {
         for _ in 0..extra {

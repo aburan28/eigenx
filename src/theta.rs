@@ -1055,6 +1055,35 @@ pub fn product_isogeny<F: Field + Send + Sync>(
     n: usize,
     strategy: &[usize],
 ) -> (EllipticProduct<F>, Vec<CouplePoint<F>>) {
+    product_isogeny_inner(e1e2, p1p2, q1q2, image_points, n, strategy, false)
+}
+
+/// As [`product_isogeny`], and also returns the images of `p1p2` and `q1q2`
+/// (of order 4) after the image points.  They are not pushed through the
+/// chain as extra image points: the strategy already carries their images
+/// down to the last step, where they are the order-8 kernel generators, and
+/// only that last step evaluates them once more.  Saves two point
+/// evaluations per step against passing them in `image_points`.
+pub fn product_isogeny_with_kernel_images<F: Field + Send + Sync>(
+    e1e2: &EllipticProduct<F>,
+    p1p2: &CouplePoint<F>,
+    q1q2: &CouplePoint<F>,
+    image_points: &[CouplePoint<F>],
+    n: usize,
+    strategy: &[usize],
+) -> (EllipticProduct<F>, Vec<CouplePoint<F>>) {
+    product_isogeny_inner(e1e2, p1p2, q1q2, image_points, n, strategy, true)
+}
+
+fn product_isogeny_inner<F: Field + Send + Sync>(
+    e1e2: &EllipticProduct<F>,
+    p1p2: &CouplePoint<F>,
+    q1q2: &CouplePoint<F>,
+    image_points: &[CouplePoint<F>],
+    n: usize,
+    strategy: &[usize],
+    kernel_images: bool,
+) -> (EllipticProduct<F>, Vec<CouplePoint<F>>) {
     let num_image_points = image_points.len();
     let mut kernel_couple_pts: Vec<CouplePoint<F>> = image_points.to_vec();
     kernel_couple_pts.push(*p1p2);
@@ -1107,6 +1136,13 @@ pub fn product_isogeny<F: Field + Send + Sync>(
         if k == n - 2 {
             domain = two_isogeny(&tp1, &tp2, &mut kernel_pts, [false, false]);
         } else if k == n - 1 {
+            if kernel_images {
+                // Only the image points remain below the popped root, whose
+                // images after n - 1 steps are tp1 and tp2.
+                debug_assert_eq!(kernel_pts.len(), num_image_points);
+                kernel_pts.push(tp1);
+                kernel_pts.push(tp2);
+            }
             domain = two_isogeny_to_product(&tp1, &tp2, &mut kernel_pts);
         } else {
             domain = two_isogeny(&tp1, &tp2, &mut kernel_pts, [false, true]);
@@ -1114,5 +1150,6 @@ pub fn product_isogeny<F: Field + Send + Sync>(
     }
 
     domain = splitting_isomorphism(domain, &mut kernel_pts);
-    split_to_product(&domain, &kernel_pts, num_image_points)
+    let returned = num_image_points + if kernel_images { 2 } else { 0 };
+    split_to_product(&domain, &kernel_pts, returned)
 }
