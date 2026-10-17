@@ -5,7 +5,7 @@ use eigen_seta::cm::{
     chain3_vartime, eigenvector_2k, mul_vartime, point_of_order, torsion_basis, Omega,
 };
 use eigen_seta::ntheory::{modpos, sqrt_mod_2power, two_squares, v2};
-use eigen_seta::params::{L1, ParamSet};
+use eigen_seta::params::{ParamSet, L1};
 use eigen_seta::weier::{WIso, WPoint};
 use num_bigint::{BigInt, BigUint};
 use rand_core::{OsRng, RngCore};

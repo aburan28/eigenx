@@ -3,7 +3,7 @@
 use eigen_seta::field::Field;
 use eigen_seta::fp::Fp;
 use eigen_seta::fp2::Fp2;
-use eigen_seta::params::{L1, ParamSet};
+use eigen_seta::params::{ParamSet, L1};
 use eigen_seta::weier::WCurve;
 use num_bigint::BigUint;
 

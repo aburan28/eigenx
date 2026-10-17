@@ -7,7 +7,7 @@
 //!
 //!   ct_probe <key_seed> <ct_seed> <valid|foreign>
 use eigen_seta::kem::{Ciphertext, DecapsPrep, EigenSeta, SecretKey};
-use eigen_seta::params::{L1, L1Fp};
+use eigen_seta::params::{L1Fp, L1};
 use rand_core::{CryptoRng, RngCore};
 
 /// SplitMix64: deterministic test RNG (NOT for production keys).

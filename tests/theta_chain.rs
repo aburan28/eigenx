@@ -12,7 +12,7 @@ use eigen_seta::cm::{
 use eigen_seta::ct::ConstantTimeEq;
 use eigen_seta::field::Field;
 use eigen_seta::ntheory::{modpos, sqrt_mod_2power, two_squares, v2};
-use eigen_seta::params::{L1, ParamSet};
+use eigen_seta::params::{ParamSet, L1};
 use eigen_seta::weier::{complementary_2_torsion_xs, Isog2, ToMontgomery, WCurve, WIso, WPoint};
 use num_bigint::{BigInt, BigUint};
 use rand_core::{OsRng, RngCore};

@@ -5,7 +5,7 @@
 //!   cargo run --release --example verify_nums -- L1
 use eigen_seta::fp::FpConfig;
 use eigen_seta::ntheory::is_nums_prime;
-use eigen_seta::params::{L1, L3, L5, ParamSet, Q3, Q5};
+use eigen_seta::params::{ParamSet, L1, L3, L5, Q3, Q5};
 use num_bigint::BigUint;
 
 fn check<P: ParamSet<N>, const N: usize>() {

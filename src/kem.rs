@@ -285,10 +285,7 @@ fn sign_pattern<P: ParamSet<N>, const N: usize>(
         let m_kg = m_kg.join().expect("weil");
         let m_qd = m_qd.join().expect("weil");
         let m_pd = m_pd.join().expect("weil");
-        (
-            weil_ratio(m_kg[0], m_qd[0]),
-            weil_ratio(m_pd[0], m_kg[1]),
-        )
+        (weil_ratio(m_kg[0], m_qd[0]), weil_ratio(m_pd[0], m_kg[1]))
     });
     let s = dlog_3k(&z1, &z2, k3);
     (ctx.modd.to_scalar_width(&ctx.modd.reduce(&s), limbs), land)

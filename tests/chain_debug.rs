@@ -4,7 +4,7 @@ use eigen_seta::chain::{graph_identity, map_pair, prodker_step, two_torsion_xs};
 use eigen_seta::cm::{eigenvector_2k, mul_vartime, torsion_basis, Omega};
 use eigen_seta::kani::{div_dbl, div_dbl_iter, div_on_curve, Glue, Richelot, Split};
 use eigen_seta::ntheory::{modpos, sqrt_mod_2power, two_squares, v2};
-use eigen_seta::params::{L1, ParamSet};
+use eigen_seta::params::{ParamSet, L1};
 use eigen_seta::weier::{WCurve, WPoint};
 use num_bigint::{BigInt, BigUint};
 use rand_core::OsRng;

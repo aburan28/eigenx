@@ -31,15 +31,7 @@ fn cli_round_trip_l1() {
     assert!(ok);
     assert!(out.contains("L1") && out.contains("L5") && out.contains("Q5"));
 
-    let (ok, _, err) = run(&[
-        "keygen",
-        "--set",
-        "L1",
-        "--pk",
-        &p("pk"),
-        "--sk",
-        &p("sk"),
-    ]);
+    let (ok, _, err) = run(&["keygen", "--set", "L1", "--pk", &p("pk"), "--sk", &p("sk")]);
     assert!(ok, "keygen failed: {err}");
 
     let (ok, _, err) = run(&[

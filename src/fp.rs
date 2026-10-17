@@ -33,9 +33,7 @@ mod n21 {
 fn pack21<const N: usize>(src: &[u64; N]) -> [u64; 21] {
     let mut a = [0u64; 21];
     let n = if N < 21 { N } else { 21 };
-    for i in 0..n {
-        a[i] = src[i];
-    }
+    a[..n].copy_from_slice(&src[..n]);
     a
 }
 
@@ -364,184 +362,819 @@ fn sbb(a: u64, b: u64, borrow: u64) -> (u64, u64) {
 }
 
 #[inline(never)]
-fn red21(lo: &mut [u64;21], hi: &mut [u64;21], p: &[u64;21]) -> [u64;21] {
+fn red21(lo: &mut [u64; 21], hi: &mut [u64; 21], p: &[u64; 21]) -> [u64; 21] {
     let p1z = p[16].wrapping_add(1);
-    let p17 = p[17]; let p18 = p[18]; let p19 = p[19]; let p20 = p[20];
+    let p17 = p[17];
+    let p18 = p[18];
+    let p19 = p[19];
+    let p20 = p[20];
     let mut pending = 0u64;
-    let m = lo[0]; lo[0] = 0; let mut c = 0u64;
-    { let (v, cc) = mac(lo[16], m, p1z, c); lo[16] = v; c = cc; }
-    { let (v, cc) = mac(lo[17], m, p17, c); lo[17] = v; c = cc; }
-    { let (v, cc) = mac(lo[18], m, p18, c); lo[18] = v; c = cc; }
-    { let (v, cc) = mac(lo[19], m, p19, c); lo[19] = v; c = cc; }
-    { let (v, cc) = mac(lo[20], m, p20, c); lo[20] = v; c = cc; }
-    { let (v, c1) = adc(hi[0], c, pending); hi[0] = v; pending = c1; }
-    let m = lo[1]; lo[1] = 0; let mut c = 0u64;
-    { let (v, cc) = mac(lo[17], m, p1z, c); lo[17] = v; c = cc; }
-    { let (v, cc) = mac(lo[18], m, p17, c); lo[18] = v; c = cc; }
-    { let (v, cc) = mac(lo[19], m, p18, c); lo[19] = v; c = cc; }
-    { let (v, cc) = mac(lo[20], m, p19, c); lo[20] = v; c = cc; }
-    { let (v, cc) = mac(hi[0], m, p20, c); hi[0] = v; c = cc; }
-    { let (v, c1) = adc(hi[1], c, pending); hi[1] = v; pending = c1; }
-    let m = lo[2]; lo[2] = 0; let mut c = 0u64;
-    { let (v, cc) = mac(lo[18], m, p1z, c); lo[18] = v; c = cc; }
-    { let (v, cc) = mac(lo[19], m, p17, c); lo[19] = v; c = cc; }
-    { let (v, cc) = mac(lo[20], m, p18, c); lo[20] = v; c = cc; }
-    { let (v, cc) = mac(hi[0], m, p19, c); hi[0] = v; c = cc; }
-    { let (v, cc) = mac(hi[1], m, p20, c); hi[1] = v; c = cc; }
-    { let (v, c1) = adc(hi[2], c, pending); hi[2] = v; pending = c1; }
-    let m = lo[3]; lo[3] = 0; let mut c = 0u64;
-    { let (v, cc) = mac(lo[19], m, p1z, c); lo[19] = v; c = cc; }
-    { let (v, cc) = mac(lo[20], m, p17, c); lo[20] = v; c = cc; }
-    { let (v, cc) = mac(hi[0], m, p18, c); hi[0] = v; c = cc; }
-    { let (v, cc) = mac(hi[1], m, p19, c); hi[1] = v; c = cc; }
-    { let (v, cc) = mac(hi[2], m, p20, c); hi[2] = v; c = cc; }
-    { let (v, c1) = adc(hi[3], c, pending); hi[3] = v; pending = c1; }
-    let m = lo[4]; lo[4] = 0; let mut c = 0u64;
-    { let (v, cc) = mac(lo[20], m, p1z, c); lo[20] = v; c = cc; }
-    { let (v, cc) = mac(hi[0], m, p17, c); hi[0] = v; c = cc; }
-    { let (v, cc) = mac(hi[1], m, p18, c); hi[1] = v; c = cc; }
-    { let (v, cc) = mac(hi[2], m, p19, c); hi[2] = v; c = cc; }
-    { let (v, cc) = mac(hi[3], m, p20, c); hi[3] = v; c = cc; }
-    { let (v, c1) = adc(hi[4], c, pending); hi[4] = v; pending = c1; }
-    let m = lo[5]; lo[5] = 0; let mut c = 0u64;
-    { let (v, cc) = mac(hi[0], m, p1z, c); hi[0] = v; c = cc; }
-    { let (v, cc) = mac(hi[1], m, p17, c); hi[1] = v; c = cc; }
-    { let (v, cc) = mac(hi[2], m, p18, c); hi[2] = v; c = cc; }
-    { let (v, cc) = mac(hi[3], m, p19, c); hi[3] = v; c = cc; }
-    { let (v, cc) = mac(hi[4], m, p20, c); hi[4] = v; c = cc; }
-    { let (v, c1) = adc(hi[5], c, pending); hi[5] = v; pending = c1; }
-    let m = lo[6]; lo[6] = 0; let mut c = 0u64;
-    { let (v, cc) = mac(hi[1], m, p1z, c); hi[1] = v; c = cc; }
-    { let (v, cc) = mac(hi[2], m, p17, c); hi[2] = v; c = cc; }
-    { let (v, cc) = mac(hi[3], m, p18, c); hi[3] = v; c = cc; }
-    { let (v, cc) = mac(hi[4], m, p19, c); hi[4] = v; c = cc; }
-    { let (v, cc) = mac(hi[5], m, p20, c); hi[5] = v; c = cc; }
-    { let (v, c1) = adc(hi[6], c, pending); hi[6] = v; pending = c1; }
-    let m = lo[7]; lo[7] = 0; let mut c = 0u64;
-    { let (v, cc) = mac(hi[2], m, p1z, c); hi[2] = v; c = cc; }
-    { let (v, cc) = mac(hi[3], m, p17, c); hi[3] = v; c = cc; }
-    { let (v, cc) = mac(hi[4], m, p18, c); hi[4] = v; c = cc; }
-    { let (v, cc) = mac(hi[5], m, p19, c); hi[5] = v; c = cc; }
-    { let (v, cc) = mac(hi[6], m, p20, c); hi[6] = v; c = cc; }
-    { let (v, c1) = adc(hi[7], c, pending); hi[7] = v; pending = c1; }
-    let m = lo[8]; lo[8] = 0; let mut c = 0u64;
-    { let (v, cc) = mac(hi[3], m, p1z, c); hi[3] = v; c = cc; }
-    { let (v, cc) = mac(hi[4], m, p17, c); hi[4] = v; c = cc; }
-    { let (v, cc) = mac(hi[5], m, p18, c); hi[5] = v; c = cc; }
-    { let (v, cc) = mac(hi[6], m, p19, c); hi[6] = v; c = cc; }
-    { let (v, cc) = mac(hi[7], m, p20, c); hi[7] = v; c = cc; }
-    { let (v, c1) = adc(hi[8], c, pending); hi[8] = v; pending = c1; }
-    let m = lo[9]; lo[9] = 0; let mut c = 0u64;
-    { let (v, cc) = mac(hi[4], m, p1z, c); hi[4] = v; c = cc; }
-    { let (v, cc) = mac(hi[5], m, p17, c); hi[5] = v; c = cc; }
-    { let (v, cc) = mac(hi[6], m, p18, c); hi[6] = v; c = cc; }
-    { let (v, cc) = mac(hi[7], m, p19, c); hi[7] = v; c = cc; }
-    { let (v, cc) = mac(hi[8], m, p20, c); hi[8] = v; c = cc; }
-    { let (v, c1) = adc(hi[9], c, pending); hi[9] = v; pending = c1; }
-    let m = lo[10]; lo[10] = 0; let mut c = 0u64;
-    { let (v, cc) = mac(hi[5], m, p1z, c); hi[5] = v; c = cc; }
-    { let (v, cc) = mac(hi[6], m, p17, c); hi[6] = v; c = cc; }
-    { let (v, cc) = mac(hi[7], m, p18, c); hi[7] = v; c = cc; }
-    { let (v, cc) = mac(hi[8], m, p19, c); hi[8] = v; c = cc; }
-    { let (v, cc) = mac(hi[9], m, p20, c); hi[9] = v; c = cc; }
-    { let (v, c1) = adc(hi[10], c, pending); hi[10] = v; pending = c1; }
-    let m = lo[11]; lo[11] = 0; let mut c = 0u64;
-    { let (v, cc) = mac(hi[6], m, p1z, c); hi[6] = v; c = cc; }
-    { let (v, cc) = mac(hi[7], m, p17, c); hi[7] = v; c = cc; }
-    { let (v, cc) = mac(hi[8], m, p18, c); hi[8] = v; c = cc; }
-    { let (v, cc) = mac(hi[9], m, p19, c); hi[9] = v; c = cc; }
-    { let (v, cc) = mac(hi[10], m, p20, c); hi[10] = v; c = cc; }
-    { let (v, c1) = adc(hi[11], c, pending); hi[11] = v; pending = c1; }
-    let m = lo[12]; lo[12] = 0; let mut c = 0u64;
-    { let (v, cc) = mac(hi[7], m, p1z, c); hi[7] = v; c = cc; }
-    { let (v, cc) = mac(hi[8], m, p17, c); hi[8] = v; c = cc; }
-    { let (v, cc) = mac(hi[9], m, p18, c); hi[9] = v; c = cc; }
-    { let (v, cc) = mac(hi[10], m, p19, c); hi[10] = v; c = cc; }
-    { let (v, cc) = mac(hi[11], m, p20, c); hi[11] = v; c = cc; }
-    { let (v, c1) = adc(hi[12], c, pending); hi[12] = v; pending = c1; }
-    let m = lo[13]; lo[13] = 0; let mut c = 0u64;
-    { let (v, cc) = mac(hi[8], m, p1z, c); hi[8] = v; c = cc; }
-    { let (v, cc) = mac(hi[9], m, p17, c); hi[9] = v; c = cc; }
-    { let (v, cc) = mac(hi[10], m, p18, c); hi[10] = v; c = cc; }
-    { let (v, cc) = mac(hi[11], m, p19, c); hi[11] = v; c = cc; }
-    { let (v, cc) = mac(hi[12], m, p20, c); hi[12] = v; c = cc; }
-    { let (v, c1) = adc(hi[13], c, pending); hi[13] = v; pending = c1; }
-    let m = lo[14]; lo[14] = 0; let mut c = 0u64;
-    { let (v, cc) = mac(hi[9], m, p1z, c); hi[9] = v; c = cc; }
-    { let (v, cc) = mac(hi[10], m, p17, c); hi[10] = v; c = cc; }
-    { let (v, cc) = mac(hi[11], m, p18, c); hi[11] = v; c = cc; }
-    { let (v, cc) = mac(hi[12], m, p19, c); hi[12] = v; c = cc; }
-    { let (v, cc) = mac(hi[13], m, p20, c); hi[13] = v; c = cc; }
-    { let (v, c1) = adc(hi[14], c, pending); hi[14] = v; pending = c1; }
-    let m = lo[15]; lo[15] = 0; let mut c = 0u64;
-    { let (v, cc) = mac(hi[10], m, p1z, c); hi[10] = v; c = cc; }
-    { let (v, cc) = mac(hi[11], m, p17, c); hi[11] = v; c = cc; }
-    { let (v, cc) = mac(hi[12], m, p18, c); hi[12] = v; c = cc; }
-    { let (v, cc) = mac(hi[13], m, p19, c); hi[13] = v; c = cc; }
-    { let (v, cc) = mac(hi[14], m, p20, c); hi[14] = v; c = cc; }
-    { let (v, c1) = adc(hi[15], c, pending); hi[15] = v; pending = c1; }
-    let m = lo[16]; lo[16] = 0; let mut c = 0u64;
-    { let (v, cc) = mac(hi[11], m, p1z, c); hi[11] = v; c = cc; }
-    { let (v, cc) = mac(hi[12], m, p17, c); hi[12] = v; c = cc; }
-    { let (v, cc) = mac(hi[13], m, p18, c); hi[13] = v; c = cc; }
-    { let (v, cc) = mac(hi[14], m, p19, c); hi[14] = v; c = cc; }
-    { let (v, cc) = mac(hi[15], m, p20, c); hi[15] = v; c = cc; }
-    { let (v, c1) = adc(hi[16], c, pending); hi[16] = v; pending = c1; }
-    let m = lo[17]; lo[17] = 0; let mut c = 0u64;
-    { let (v, cc) = mac(hi[12], m, p1z, c); hi[12] = v; c = cc; }
-    { let (v, cc) = mac(hi[13], m, p17, c); hi[13] = v; c = cc; }
-    { let (v, cc) = mac(hi[14], m, p18, c); hi[14] = v; c = cc; }
-    { let (v, cc) = mac(hi[15], m, p19, c); hi[15] = v; c = cc; }
-    { let (v, cc) = mac(hi[16], m, p20, c); hi[16] = v; c = cc; }
-    { let (v, c1) = adc(hi[17], c, pending); hi[17] = v; pending = c1; }
-    let m = lo[18]; lo[18] = 0; let mut c = 0u64;
-    { let (v, cc) = mac(hi[13], m, p1z, c); hi[13] = v; c = cc; }
-    { let (v, cc) = mac(hi[14], m, p17, c); hi[14] = v; c = cc; }
-    { let (v, cc) = mac(hi[15], m, p18, c); hi[15] = v; c = cc; }
-    { let (v, cc) = mac(hi[16], m, p19, c); hi[16] = v; c = cc; }
-    { let (v, cc) = mac(hi[17], m, p20, c); hi[17] = v; c = cc; }
-    { let (v, c1) = adc(hi[18], c, pending); hi[18] = v; pending = c1; }
-    let m = lo[19]; lo[19] = 0; let mut c = 0u64;
-    { let (v, cc) = mac(hi[14], m, p1z, c); hi[14] = v; c = cc; }
-    { let (v, cc) = mac(hi[15], m, p17, c); hi[15] = v; c = cc; }
-    { let (v, cc) = mac(hi[16], m, p18, c); hi[16] = v; c = cc; }
-    { let (v, cc) = mac(hi[17], m, p19, c); hi[17] = v; c = cc; }
-    { let (v, cc) = mac(hi[18], m, p20, c); hi[18] = v; c = cc; }
-    { let (v, c1) = adc(hi[19], c, pending); hi[19] = v; pending = c1; }
-    let m = lo[20]; lo[20] = 0; let mut c = 0u64;
-    { let (v, cc) = mac(hi[15], m, p1z, c); hi[15] = v; c = cc; }
-    { let (v, cc) = mac(hi[16], m, p17, c); hi[16] = v; c = cc; }
-    { let (v, cc) = mac(hi[17], m, p18, c); hi[17] = v; c = cc; }
-    { let (v, cc) = mac(hi[18], m, p19, c); hi[18] = v; c = cc; }
-    { let (v, cc) = mac(hi[19], m, p20, c); hi[19] = v; c = cc; }
-    { let (v, c1) = adc(hi[20], c, pending); hi[20] = v; pending = c1; }
-    let mut d = [0u64;21];
+    let m = lo[0];
+    lo[0] = 0;
+    let mut c = 0u64;
+    {
+        let (v, cc) = mac(lo[16], m, p1z, c);
+        lo[16] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(lo[17], m, p17, c);
+        lo[17] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(lo[18], m, p18, c);
+        lo[18] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(lo[19], m, p19, c);
+        lo[19] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(lo[20], m, p20, c);
+        lo[20] = v;
+        c = cc;
+    }
+    {
+        let (v, c1) = adc(hi[0], c, pending);
+        hi[0] = v;
+        pending = c1;
+    }
+    let m = lo[1];
+    lo[1] = 0;
+    let mut c = 0u64;
+    {
+        let (v, cc) = mac(lo[17], m, p1z, c);
+        lo[17] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(lo[18], m, p17, c);
+        lo[18] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(lo[19], m, p18, c);
+        lo[19] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(lo[20], m, p19, c);
+        lo[20] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[0], m, p20, c);
+        hi[0] = v;
+        c = cc;
+    }
+    {
+        let (v, c1) = adc(hi[1], c, pending);
+        hi[1] = v;
+        pending = c1;
+    }
+    let m = lo[2];
+    lo[2] = 0;
+    let mut c = 0u64;
+    {
+        let (v, cc) = mac(lo[18], m, p1z, c);
+        lo[18] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(lo[19], m, p17, c);
+        lo[19] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(lo[20], m, p18, c);
+        lo[20] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[0], m, p19, c);
+        hi[0] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[1], m, p20, c);
+        hi[1] = v;
+        c = cc;
+    }
+    {
+        let (v, c1) = adc(hi[2], c, pending);
+        hi[2] = v;
+        pending = c1;
+    }
+    let m = lo[3];
+    lo[3] = 0;
+    let mut c = 0u64;
+    {
+        let (v, cc) = mac(lo[19], m, p1z, c);
+        lo[19] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(lo[20], m, p17, c);
+        lo[20] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[0], m, p18, c);
+        hi[0] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[1], m, p19, c);
+        hi[1] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[2], m, p20, c);
+        hi[2] = v;
+        c = cc;
+    }
+    {
+        let (v, c1) = adc(hi[3], c, pending);
+        hi[3] = v;
+        pending = c1;
+    }
+    let m = lo[4];
+    lo[4] = 0;
+    let mut c = 0u64;
+    {
+        let (v, cc) = mac(lo[20], m, p1z, c);
+        lo[20] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[0], m, p17, c);
+        hi[0] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[1], m, p18, c);
+        hi[1] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[2], m, p19, c);
+        hi[2] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[3], m, p20, c);
+        hi[3] = v;
+        c = cc;
+    }
+    {
+        let (v, c1) = adc(hi[4], c, pending);
+        hi[4] = v;
+        pending = c1;
+    }
+    let m = lo[5];
+    lo[5] = 0;
+    let mut c = 0u64;
+    {
+        let (v, cc) = mac(hi[0], m, p1z, c);
+        hi[0] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[1], m, p17, c);
+        hi[1] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[2], m, p18, c);
+        hi[2] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[3], m, p19, c);
+        hi[3] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[4], m, p20, c);
+        hi[4] = v;
+        c = cc;
+    }
+    {
+        let (v, c1) = adc(hi[5], c, pending);
+        hi[5] = v;
+        pending = c1;
+    }
+    let m = lo[6];
+    lo[6] = 0;
+    let mut c = 0u64;
+    {
+        let (v, cc) = mac(hi[1], m, p1z, c);
+        hi[1] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[2], m, p17, c);
+        hi[2] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[3], m, p18, c);
+        hi[3] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[4], m, p19, c);
+        hi[4] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[5], m, p20, c);
+        hi[5] = v;
+        c = cc;
+    }
+    {
+        let (v, c1) = adc(hi[6], c, pending);
+        hi[6] = v;
+        pending = c1;
+    }
+    let m = lo[7];
+    lo[7] = 0;
+    let mut c = 0u64;
+    {
+        let (v, cc) = mac(hi[2], m, p1z, c);
+        hi[2] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[3], m, p17, c);
+        hi[3] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[4], m, p18, c);
+        hi[4] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[5], m, p19, c);
+        hi[5] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[6], m, p20, c);
+        hi[6] = v;
+        c = cc;
+    }
+    {
+        let (v, c1) = adc(hi[7], c, pending);
+        hi[7] = v;
+        pending = c1;
+    }
+    let m = lo[8];
+    lo[8] = 0;
+    let mut c = 0u64;
+    {
+        let (v, cc) = mac(hi[3], m, p1z, c);
+        hi[3] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[4], m, p17, c);
+        hi[4] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[5], m, p18, c);
+        hi[5] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[6], m, p19, c);
+        hi[6] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[7], m, p20, c);
+        hi[7] = v;
+        c = cc;
+    }
+    {
+        let (v, c1) = adc(hi[8], c, pending);
+        hi[8] = v;
+        pending = c1;
+    }
+    let m = lo[9];
+    lo[9] = 0;
+    let mut c = 0u64;
+    {
+        let (v, cc) = mac(hi[4], m, p1z, c);
+        hi[4] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[5], m, p17, c);
+        hi[5] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[6], m, p18, c);
+        hi[6] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[7], m, p19, c);
+        hi[7] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[8], m, p20, c);
+        hi[8] = v;
+        c = cc;
+    }
+    {
+        let (v, c1) = adc(hi[9], c, pending);
+        hi[9] = v;
+        pending = c1;
+    }
+    let m = lo[10];
+    lo[10] = 0;
+    let mut c = 0u64;
+    {
+        let (v, cc) = mac(hi[5], m, p1z, c);
+        hi[5] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[6], m, p17, c);
+        hi[6] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[7], m, p18, c);
+        hi[7] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[8], m, p19, c);
+        hi[8] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[9], m, p20, c);
+        hi[9] = v;
+        c = cc;
+    }
+    {
+        let (v, c1) = adc(hi[10], c, pending);
+        hi[10] = v;
+        pending = c1;
+    }
+    let m = lo[11];
+    lo[11] = 0;
+    let mut c = 0u64;
+    {
+        let (v, cc) = mac(hi[6], m, p1z, c);
+        hi[6] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[7], m, p17, c);
+        hi[7] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[8], m, p18, c);
+        hi[8] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[9], m, p19, c);
+        hi[9] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[10], m, p20, c);
+        hi[10] = v;
+        c = cc;
+    }
+    {
+        let (v, c1) = adc(hi[11], c, pending);
+        hi[11] = v;
+        pending = c1;
+    }
+    let m = lo[12];
+    lo[12] = 0;
+    let mut c = 0u64;
+    {
+        let (v, cc) = mac(hi[7], m, p1z, c);
+        hi[7] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[8], m, p17, c);
+        hi[8] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[9], m, p18, c);
+        hi[9] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[10], m, p19, c);
+        hi[10] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[11], m, p20, c);
+        hi[11] = v;
+        c = cc;
+    }
+    {
+        let (v, c1) = adc(hi[12], c, pending);
+        hi[12] = v;
+        pending = c1;
+    }
+    let m = lo[13];
+    lo[13] = 0;
+    let mut c = 0u64;
+    {
+        let (v, cc) = mac(hi[8], m, p1z, c);
+        hi[8] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[9], m, p17, c);
+        hi[9] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[10], m, p18, c);
+        hi[10] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[11], m, p19, c);
+        hi[11] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[12], m, p20, c);
+        hi[12] = v;
+        c = cc;
+    }
+    {
+        let (v, c1) = adc(hi[13], c, pending);
+        hi[13] = v;
+        pending = c1;
+    }
+    let m = lo[14];
+    lo[14] = 0;
+    let mut c = 0u64;
+    {
+        let (v, cc) = mac(hi[9], m, p1z, c);
+        hi[9] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[10], m, p17, c);
+        hi[10] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[11], m, p18, c);
+        hi[11] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[12], m, p19, c);
+        hi[12] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[13], m, p20, c);
+        hi[13] = v;
+        c = cc;
+    }
+    {
+        let (v, c1) = adc(hi[14], c, pending);
+        hi[14] = v;
+        pending = c1;
+    }
+    let m = lo[15];
+    lo[15] = 0;
+    let mut c = 0u64;
+    {
+        let (v, cc) = mac(hi[10], m, p1z, c);
+        hi[10] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[11], m, p17, c);
+        hi[11] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[12], m, p18, c);
+        hi[12] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[13], m, p19, c);
+        hi[13] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[14], m, p20, c);
+        hi[14] = v;
+        c = cc;
+    }
+    {
+        let (v, c1) = adc(hi[15], c, pending);
+        hi[15] = v;
+        pending = c1;
+    }
+    let m = lo[16];
+    lo[16] = 0;
+    let mut c = 0u64;
+    {
+        let (v, cc) = mac(hi[11], m, p1z, c);
+        hi[11] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[12], m, p17, c);
+        hi[12] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[13], m, p18, c);
+        hi[13] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[14], m, p19, c);
+        hi[14] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[15], m, p20, c);
+        hi[15] = v;
+        c = cc;
+    }
+    {
+        let (v, c1) = adc(hi[16], c, pending);
+        hi[16] = v;
+        pending = c1;
+    }
+    let m = lo[17];
+    lo[17] = 0;
+    let mut c = 0u64;
+    {
+        let (v, cc) = mac(hi[12], m, p1z, c);
+        hi[12] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[13], m, p17, c);
+        hi[13] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[14], m, p18, c);
+        hi[14] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[15], m, p19, c);
+        hi[15] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[16], m, p20, c);
+        hi[16] = v;
+        c = cc;
+    }
+    {
+        let (v, c1) = adc(hi[17], c, pending);
+        hi[17] = v;
+        pending = c1;
+    }
+    let m = lo[18];
+    lo[18] = 0;
+    let mut c = 0u64;
+    {
+        let (v, cc) = mac(hi[13], m, p1z, c);
+        hi[13] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[14], m, p17, c);
+        hi[14] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[15], m, p18, c);
+        hi[15] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[16], m, p19, c);
+        hi[16] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[17], m, p20, c);
+        hi[17] = v;
+        c = cc;
+    }
+    {
+        let (v, c1) = adc(hi[18], c, pending);
+        hi[18] = v;
+        pending = c1;
+    }
+    let m = lo[19];
+    lo[19] = 0;
+    let mut c = 0u64;
+    {
+        let (v, cc) = mac(hi[14], m, p1z, c);
+        hi[14] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[15], m, p17, c);
+        hi[15] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[16], m, p18, c);
+        hi[16] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[17], m, p19, c);
+        hi[17] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[18], m, p20, c);
+        hi[18] = v;
+        c = cc;
+    }
+    {
+        let (v, c1) = adc(hi[19], c, pending);
+        hi[19] = v;
+        pending = c1;
+    }
+    let m = lo[20];
+    lo[20] = 0;
+    let mut c = 0u64;
+    {
+        let (v, cc) = mac(hi[15], m, p1z, c);
+        hi[15] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[16], m, p17, c);
+        hi[16] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[17], m, p18, c);
+        hi[17] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[18], m, p19, c);
+        hi[18] = v;
+        c = cc;
+    }
+    {
+        let (v, cc) = mac(hi[19], m, p20, c);
+        hi[19] = v;
+        c = cc;
+    }
+    {
+        let (v, c1) = adc(hi[20], c, pending);
+        hi[20] = v;
+        pending = c1;
+    }
+    let mut d = [0u64; 21];
     let mut borrow = 0u64;
-    { let (v, b) = sbb(hi[0], p[0], borrow); d[0] = v; borrow = b; }
-    { let (v, b) = sbb(hi[1], p[1], borrow); d[1] = v; borrow = b; }
-    { let (v, b) = sbb(hi[2], p[2], borrow); d[2] = v; borrow = b; }
-    { let (v, b) = sbb(hi[3], p[3], borrow); d[3] = v; borrow = b; }
-    { let (v, b) = sbb(hi[4], p[4], borrow); d[4] = v; borrow = b; }
-    { let (v, b) = sbb(hi[5], p[5], borrow); d[5] = v; borrow = b; }
-    { let (v, b) = sbb(hi[6], p[6], borrow); d[6] = v; borrow = b; }
-    { let (v, b) = sbb(hi[7], p[7], borrow); d[7] = v; borrow = b; }
-    { let (v, b) = sbb(hi[8], p[8], borrow); d[8] = v; borrow = b; }
-    { let (v, b) = sbb(hi[9], p[9], borrow); d[9] = v; borrow = b; }
-    { let (v, b) = sbb(hi[10], p[10], borrow); d[10] = v; borrow = b; }
-    { let (v, b) = sbb(hi[11], p[11], borrow); d[11] = v; borrow = b; }
-    { let (v, b) = sbb(hi[12], p[12], borrow); d[12] = v; borrow = b; }
-    { let (v, b) = sbb(hi[13], p[13], borrow); d[13] = v; borrow = b; }
-    { let (v, b) = sbb(hi[14], p[14], borrow); d[14] = v; borrow = b; }
-    { let (v, b) = sbb(hi[15], p[15], borrow); d[15] = v; borrow = b; }
-    { let (v, b) = sbb(hi[16], p[16], borrow); d[16] = v; borrow = b; }
-    { let (v, b) = sbb(hi[17], p[17], borrow); d[17] = v; borrow = b; }
-    { let (v, b) = sbb(hi[18], p[18], borrow); d[18] = v; borrow = b; }
-    { let (v, b) = sbb(hi[19], p[19], borrow); d[19] = v; borrow = b; }
-    { let (v, b) = sbb(hi[20], p[20], borrow); d[20] = v; borrow = b; }
+    {
+        let (v, b) = sbb(hi[0], p[0], borrow);
+        d[0] = v;
+        borrow = b;
+    }
+    {
+        let (v, b) = sbb(hi[1], p[1], borrow);
+        d[1] = v;
+        borrow = b;
+    }
+    {
+        let (v, b) = sbb(hi[2], p[2], borrow);
+        d[2] = v;
+        borrow = b;
+    }
+    {
+        let (v, b) = sbb(hi[3], p[3], borrow);
+        d[3] = v;
+        borrow = b;
+    }
+    {
+        let (v, b) = sbb(hi[4], p[4], borrow);
+        d[4] = v;
+        borrow = b;
+    }
+    {
+        let (v, b) = sbb(hi[5], p[5], borrow);
+        d[5] = v;
+        borrow = b;
+    }
+    {
+        let (v, b) = sbb(hi[6], p[6], borrow);
+        d[6] = v;
+        borrow = b;
+    }
+    {
+        let (v, b) = sbb(hi[7], p[7], borrow);
+        d[7] = v;
+        borrow = b;
+    }
+    {
+        let (v, b) = sbb(hi[8], p[8], borrow);
+        d[8] = v;
+        borrow = b;
+    }
+    {
+        let (v, b) = sbb(hi[9], p[9], borrow);
+        d[9] = v;
+        borrow = b;
+    }
+    {
+        let (v, b) = sbb(hi[10], p[10], borrow);
+        d[10] = v;
+        borrow = b;
+    }
+    {
+        let (v, b) = sbb(hi[11], p[11], borrow);
+        d[11] = v;
+        borrow = b;
+    }
+    {
+        let (v, b) = sbb(hi[12], p[12], borrow);
+        d[12] = v;
+        borrow = b;
+    }
+    {
+        let (v, b) = sbb(hi[13], p[13], borrow);
+        d[13] = v;
+        borrow = b;
+    }
+    {
+        let (v, b) = sbb(hi[14], p[14], borrow);
+        d[14] = v;
+        borrow = b;
+    }
+    {
+        let (v, b) = sbb(hi[15], p[15], borrow);
+        d[15] = v;
+        borrow = b;
+    }
+    {
+        let (v, b) = sbb(hi[16], p[16], borrow);
+        d[16] = v;
+        borrow = b;
+    }
+    {
+        let (v, b) = sbb(hi[17], p[17], borrow);
+        d[17] = v;
+        borrow = b;
+    }
+    {
+        let (v, b) = sbb(hi[18], p[18], borrow);
+        d[18] = v;
+        borrow = b;
+    }
+    {
+        let (v, b) = sbb(hi[19], p[19], borrow);
+        d[19] = v;
+        borrow = b;
+    }
+    {
+        let (v, b) = sbb(hi[20], p[20], borrow);
+        d[20] = v;
+        borrow = b;
+    }
     let (_, b2) = sbb(pending, 0, borrow);
     let m = core::hint::black_box(0u64.wrapping_sub(b2));
-    let mut r = [0u64;21];
-    for i in 0..21 { r[i] = (hi[i] & m) | (d[i] & !m); }
+    let mut r = [0u64; 21];
+    for i in 0..21 {
+        r[i] = (hi[i] & m) | (d[i] & !m);
+    }
     r
 }
 
@@ -639,9 +1272,7 @@ impl<C: FpConfig<N>, const N: usize> Fp<C, N> {
             n21::prod1(&aa, &bb, &mut lo, &mut hi);
             let r = red21(&mut lo, &mut hi, &p);
             let mut out = [0u64; N];
-            for i in 0..21.min(N) {
-                out[i] = r[i];
-            }
+            out[..21.min(N)].copy_from_slice(&r[..21.min(N)]);
             return Self::from_raw(out);
         }
         if C::P1_ZERO_LIMBS > 0 && N <= MAX_LIMBS {
@@ -1206,7 +1837,9 @@ mod tests {
             x = black_box(x.square());
         }
         let fp2_sq_ns = t.elapsed().as_nanos() / n as u128;
-        eprintln!("L1 mul {mul_ns}ns square {sq_ns}ns fp2 mul {fp2_mul_ns}ns fp2 square {fp2_sq_ns}ns");
+        eprintln!(
+            "L1 mul {mul_ns}ns square {sq_ns}ns fp2 mul {fp2_mul_ns}ns fp2 square {fp2_sq_ns}ns"
+        );
         let _ = x;
     }
 
