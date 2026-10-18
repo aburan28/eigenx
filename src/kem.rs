@@ -12,7 +12,10 @@
 //!   (a, b) = G(s, pk). IND-CCA security has not been established.
 
 use crate::chain::{decaps_chain_theta, first_step_glues, keygen_chain, keygen_chain_theta, Pair};
-use crate::cm::{add_vartime, eigenvector_2k, mul_vartime, point_from_x, torsion_basis_cof, Omega};
+use crate::cm::{
+    add_vartime, eigenvector_2k, mul_vartime, point_from_x, rerandomize_basis, torsion_basis_cof,
+    Omega,
+};
 use crate::ct::{Choice, ConditionallySelectable, ConstantTimeEq};
 use crate::field::Field;
 use crate::fp::Fp;
@@ -66,7 +69,16 @@ pub struct SecretKey {
     /// [f_lo, 2 f_lo)).  f itself is not retained: decapsulation never uses it.
     #[zeroize(skip)]
     f_bits: u64,
+    /// The canonical 3^F3 basis of E_A, computed on first use and reused by
+    /// every later decapsulation (public data; `PkBasis` of this key's set).
+    #[zeroize(skip)]
+    pk_basis: BasisCache,
 }
+
+/// A lazily filled, type-erased cache for the canonical basis of E_A.  The
+/// stored value is a `PkBasis` of the key's own parameter set; a lookup with
+/// another set's type simply misses and recomputes.
+type BasisCache = std::sync::Arc<std::sync::OnceLock<Box<dyn std::any::Any + Send + Sync>>>;
 
 impl SecretKey {
     pub fn secret_degree_bits(&self) -> u64 {
@@ -101,6 +113,15 @@ fn shake(parts: &[&[u8]], out: usize) -> Vec<u8> {
 }
 
 pub struct EigenSeta<P: ParamSet<N>, const N: usize>(PhantomData<P>);
+
+/// A validated public key with its canonical 3^F3 basis
+/// (`EigenSeta::prepare_public_key`).
+#[derive(Clone)]
+pub struct PreparedPublicKey<P: ParamSet<N>, const N: usize> {
+    pkf: [F<P, N>; 4],
+    basis: PkBasis<F<P, N>>,
+    pkh: [u8; 32],
+}
 
 /// Canonical basis of E_A[3^F3] (public, derived from the public key).
 #[derive(Clone, Copy, Debug)]
@@ -423,6 +444,7 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
             pk,
             pkh: pkh_a,
             f_bits,
+            pk_basis: BasisCache::default(),
         })
     }
 
@@ -526,6 +548,7 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
             pk: pk_bytes.to_vec(),
             pkh: pkh_a,
             f_bits: f.bits(),
+            pk_basis: BasisCache::default(),
         }
     }
 
@@ -574,8 +597,21 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         s.to_le_bytes(ctx.d_bits.div_ceil(8))
     }
 
-    /// Deterministic encryption of the kernel scalar s.  Constant time in s.
     /// Public, variable-time: the canonical basis of E_A[3^F3] and x(P - Q).
+    /// `pk_basis` through the key's cache: computed once per secret key.
+    fn pk_basis_cached(sk: &SecretKey, a_a: &F<P, N>) -> Option<PkBasis<F<P, N>>> {
+        if let Some(b) = sk
+            .pk_basis
+            .get()
+            .and_then(|b| b.downcast_ref::<PkBasis<F<P, N>>>())
+        {
+            return Some(*b);
+        }
+        let b = Self::pk_basis(a_a)?;
+        let _ = sk.pk_basis.set(Box::new(b));
+        Some(b)
+    }
+
     fn pk_basis(a_a: &F<P, N>) -> Option<PkBasis<F<P, N>>> {
         let (pd, qd) = canonical_basis_3::<P, N>(a_a)?;
         let pqd = WCurve::from_montgomery(*a_a).sub(&pd, &qd);
@@ -631,6 +667,7 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
             && !bool::from(hp.affine().ct_eq(&hq.affine()))
     }
 
+    /// Deterministic encryption of the kernel scalar s.  Constant time in s.
     fn enc_det(ctx: &Ctx<P, N>, pk: &[F<P, N>; 4], s: &Scalar, pkh: &[u8]) -> Option<Vec<u8>> {
         Some(Self::enc_det_core(
             ctx,
@@ -689,16 +726,34 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         fbytes(&[a_c, xs.affine(), xt.affine(), xst.affine()])
     }
 
-    pub fn encaps<R: RngCore + CryptoRng>(
-        pk: &PublicKey,
-        rng: &mut R,
-    ) -> Option<(Ciphertext, [u8; SS_BYTES])> {
-        let ctx = Ctx::<P, N>::new();
+    /// Validate a public key and compute its canonical 3^F3 basis once, for
+    /// a sender who encapsulates to the same key repeatedly
+    /// (`encaps_prepared`).  `None` on a malformed public key.
+    pub fn prepare_public_key(pk: &PublicKey) -> Option<PreparedPublicKey<P, N>> {
         let pkf = parse4::<F<P, N>>(&pk.bytes)?;
         if !Self::pk_points_valid(&pkf) {
             return None;
         }
-        let pkh = shake(&[b"EigenSeta-P", &pk.bytes], 32);
+        let basis = Self::pk_basis(&pkf[0])?;
+        let mut pkh = [0u8; 32];
+        pkh.copy_from_slice(&shake(&[b"EigenSeta-P", &pk.bytes], 32));
+        Some(PreparedPublicKey { pkf, basis, pkh })
+    }
+
+    /// Encapsulation against a prepared public key: identical output to
+    /// `encaps` for the same randomness, without revalidating the key or
+    /// recomputing its basis.
+    pub fn encaps_prepared<R: RngCore + CryptoRng>(
+        pk: &PreparedPublicKey<P, N>,
+        rng: &mut R,
+    ) -> Option<(Ciphertext, [u8; SS_BYTES])> {
+        let ctx = Ctx::<P, N>::new();
+        let s = Self::draw_s(&ctx, rng);
+        let ct = Self::enc_det_core(&ctx, &pk.pkf, &pk.basis, &s, &pk.pkh);
+        Some(Self::finish_encaps(&ctx, &s, ct))
+    }
+
+    fn draw_s<R: RngCore + CryptoRng>(ctx: &Ctx<P, N>, rng: &mut R) -> Scalar {
         // Uniform seed reduced mod d = 3^F3. A full-width draw is
         // ceil(d_bits/8) bytes; ceil(λ/8) extra bytes makes the statistical
         // distance of that reduction at most 2^{-λ}
@@ -711,14 +766,29 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
             .modd
             .to_scalar_width(&ctx.modd.reduce(&s_raw), ctx.modd.limbs());
         buf.zeroize();
-        let ct = Self::enc_det(&ctx, &pkf, &s, &pkh)?;
-        let k = shake(
-            &[b"EigenSeta-K", &Self::s_to_bytes(&ctx, &s), &ct],
-            SS_BYTES,
-        );
+        s
+    }
+
+    fn finish_encaps(ctx: &Ctx<P, N>, s: &Scalar, ct: Vec<u8>) -> (Ciphertext, [u8; SS_BYTES]) {
+        let k = shake(&[b"EigenSeta-K", &Self::s_to_bytes(ctx, s), &ct], SS_BYTES);
         let mut out = [0u8; SS_BYTES];
         out.copy_from_slice(&k);
-        Some((Ciphertext { bytes: ct }, out))
+        (Ciphertext { bytes: ct }, out)
+    }
+
+    pub fn encaps<R: RngCore + CryptoRng>(
+        pk: &PublicKey,
+        rng: &mut R,
+    ) -> Option<(Ciphertext, [u8; SS_BYTES])> {
+        let ctx = Ctx::<P, N>::new();
+        let pkf = parse4::<F<P, N>>(&pk.bytes)?;
+        if !Self::pk_points_valid(&pkf) {
+            return None;
+        }
+        let pkh = shake(&[b"EigenSeta-P", &pk.bytes], 32);
+        let s = Self::draw_s(&ctx, rng);
+        let ct = Self::enc_det(&ctx, &pkf, &s, &pkh)?;
+        Some(Self::finish_encaps(&ctx, &s, ct))
     }
 
     pub fn decaps(sk: &SecretKey, ct: &Ciphertext) -> [u8; SS_BYTES] {
@@ -754,7 +824,7 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         // The two 3^F3 bases are independent public work.
         let (basis_c, pk_basis) = std::thread::scope(|scope| {
             let b = scope.spawn(|| canonical_basis_3::<P, N>(&a_c));
-            let p = scope.spawn(|| Self::pk_basis(&pkf[0]));
+            let p = scope.spawn(|| Self::pk_basis_cached(sk, &pkf[0]));
             (b.join().expect("basis"), p.join().expect("pk basis"))
         });
         let (x1, x2) = basis_c?;
@@ -816,24 +886,22 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         } = *prep;
         let a_a = pkf[0];
         let wc = WCurve::from_montgomery(a_c);
-        // secret: Kani kernel generators (c'S, -lamS S), (c'T, -lamT T)
+        // secret: Kani kernel generators (c'S, -lamS S), (c'T, -lamT T).
+        // c' is odd, so the same subgroup is generated by (S, -muS S) and
+        // (T, -muT T) with mu = lam / c' mod 2^E: one ladder per point
+        // instead of two.  The inverse is a fixed-count Newton iteration.
         let e = ctx.e;
         let d_bits = ctx.d_bits;
-        // Four secret ladders on E_C, independent of each other.
-        let (k1a, k1b, k2a, k2b) = std::thread::scope(|scope| {
-            let a = scope.spawn(|| smul_ct(&a_c, &s_pt, &sk.cp2, e));
-            let b = scope.spawn(|| smul_ct(&a_c, &s_pt, &sk.lam_s, e));
-            let c = scope.spawn(|| smul_ct(&a_c, &t_pt, &sk.cp2, e));
-            let d = scope.spawn(|| smul_ct(&a_c, &t_pt, &sk.lam_t, e));
-            (
-                a.join().expect("ladder"),
-                b.join().expect("ladder"),
-                c.join().expect("ladder"),
-                d.join().expect("ladder"),
-            )
+        let cp_inv = sk.cp2.inv_mod_2k(e);
+        let mu_s = sk.lam_s.mul_mod_2k(&cp_inv, e);
+        let mu_t = sk.lam_t.mul_mod_2k(&cp_inv, e);
+        let (k1b, k2b) = std::thread::scope(|scope| {
+            let b = scope.spawn(|| smul_ct(&a_c, &s_pt, &mu_s, e));
+            let d = scope.spawn(|| smul_ct(&a_c, &t_pt, &mu_t, e));
+            (b.join().expect("ladder"), d.join().expect("ladder"))
         });
-        let k1 = (k1a, k1b.neg());
-        let k2 = (k2a, k2b.neg());
+        let k1 = (s_pt, k1b.neg());
+        let k2 = (t_pt, k2b.neg());
         let o = WPoint::infinity();
         // Theta (2,2)-chain. Split recovers points from
         // the Kummer line (y-signs ambiguous) and may swap product factors per
@@ -845,9 +913,11 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
             let cpx2 = scope.spawn(|| smul_ct(&a_c, &x2, &sk.cp3, d_bits));
             let cx1 = scope.spawn(|| smul_ct(&a_c, &x1, &sk.c3, d_bits));
             let cx2 = scope.spawn(|| smul_ct(&a_c, &x2, &sk.c3, d_bits));
-            // (O, X1) is not read after the chain; only the images of (X1, O)
-            // and (X2, O) identify α.
-            let chain = decaps_chain_theta(&wc, &k1, &k2, e, &[(x1, o), (x2, o)]);
+            // (O, X1) is not read after the chain; the images of (X1, O) and
+            // (X2, O) give α up to sign, and the image of (X1 + X2, O) fixes
+            // their relative sign.
+            let x3 = wc.add(&x1, &x2);
+            let chain = decaps_chain_theta(&wc, &k1, &k2, e, &[(x1, o), (x2, o), (x3, o)]);
             (
                 chain.0,
                 chain.1,
@@ -858,8 +928,10 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
             )
         });
         let sig = WIso::find(&fc, &wc);
+        let cpx3 = wc.add(&cpx1, &cpx2);
         let mut alpha1 = WPoint::infinity();
         let mut alpha2 = WPoint::infinity();
+        let mut alpha3 = WPoint::infinity();
         // Phi(X,0) = (αX, −c′X) up to component order and iso sign.
         let pick_alpha = |pr: &Pair<F<P, N>>, cpx_neg: &WPoint<F<P, N>>, sc: &WIso<F<P, N>>| {
             let u = sc.eval(&pr.0);
@@ -874,10 +946,38 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         for sc in [sig, sig.negate()] {
             let (a1, ok1) = pick_alpha(&imgs[0], &cpx1.neg(), &sc);
             let (a2, ok2) = pick_alpha(&imgs[1], &cpx2.neg(), &sc);
-            let ok = ok1 & ok2;
+            let (a3, ok3) = pick_alpha(&imgs[2], &cpx3.neg(), &sc);
+            let ok = ok1 & ok2 & ok3;
             alpha1 = WPoint::conditional_select(&alpha1, &a1, ok);
             alpha2 = WPoint::conditional_select(&alpha2, &a2, ok);
+            alpha3 = WPoint::conditional_select(&alpha3, &a3, ok);
         }
+        // The Kummer split leaves each alpha_i = ±γ(X_i) with an independent
+        // sign.  γ(X1 + X2) = γX1 + γX2, so x(alpha1 ± alpha2) = x(alpha3)
+        // picks the relative sign.  That leaves one global sign: with the
+        // wrong one, alpha_i − cX_i = −(ψ + 2c)X_i, an endomorphism of degree
+        // 7d²f² + 4c², whose Weil pairing on (X1, X2) is e(X1, X2)^(4c²) =
+        // e(cX1, cX2)^4.  With the right one the images are dependent and the
+        // pairing is 1 (or degenerate, 0), never that target, unless
+        // 3^⌈F/2⌉ | c; key generation's self-test rejects such a key.  All
+        // selections are constant time; the tail then runs once instead of
+        // once per sign pattern.
+        let same = wc.add(&alpha1, &alpha2).x.ct_eq(&alpha3.x);
+        let alpha2 = WPoint::conditional_select(&alpha2.neg(), &alpha2, same);
+        let psi_a1 = wc.sub(&alpha1, &cx1);
+        let psi_a2 = wc.sub(&alpha2, &cx2);
+        let (w_cand, w_tgt) = std::thread::scope(|scope| {
+            let m1 = scope.spawn(|| miller_many(&wc, &psi_a1, &[psi_a2], &ctx.d));
+            let m2 = scope.spawn(|| miller_many(&wc, &psi_a2, &[psi_a1], &ctx.d));
+            let m3 = scope.spawn(|| miller_many(&wc, &cx1, &[cx2], &ctx.d));
+            let m4 = scope.spawn(|| miller_many(&wc, &cx2, &[cx1], &ctx.d));
+            let w_cand = weil_ratio(m1.join().expect("weil")[0], m2.join().expect("weil")[0]);
+            let w_c = weil_ratio(m3.join().expect("weil")[0], m4.join().expect("weil")[0]);
+            (w_cand, w_c.square().square())
+        });
+        let wrong = w_cand.ct_eq(&w_tgt);
+        let alpha1 = WPoint::conditional_select(&alpha1, &alpha1.neg(), wrong);
+        let alpha2 = WPoint::conditional_select(&alpha2, &alpha2.neg(), wrong);
         let k3 = P::F3;
         let d = &ctx.d;
         let pcc = ProjCurve::from_affine(a_c);
@@ -886,33 +986,10 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         let (pd, qd) = (pk_basis.pd, pk_basis.qd);
         let limbs = ctx.modd.limbs();
         let d = d.clone();
-        // Four y-sign patterns for (alpha1, alpha2). Each pattern is the same
-        // amount of work; they share no writes, so they run together. A later
-        // pattern still overrides an earlier one when both land, matching the
-        // sequential select.
-        let patterns = [(false, false), (false, true), (true, false), (true, true)];
-        let found = std::thread::scope(|scope| {
-            let mut joins = Vec::with_capacity(4);
-            for (flip1, flip2) in patterns {
-                let d = d.clone();
-                joins.push(scope.spawn(move || {
-                    sign_pattern::<P, N>(
-                        flip1, flip2, alpha1, alpha2, wc, cx1, cx2, x1, x2, a_c, a_a, pd, qd, pcc,
-                        pa, wa, &d, k3, d_bits, limbs,
-                    )
-                }));
-            }
-            joins
-                .into_iter()
-                .map(|j| j.join().expect("sign pattern"))
-                .collect::<Vec<_>>()
-        });
-        let mut best = Scalar::zero(limbs);
-        for (s, land) in found {
-            for i in 0..limbs {
-                best.l[i] = u64::conditional_select(&best.l[i], &s.l[i], land);
-            }
-        }
+        let (best, _land) = sign_pattern::<P, N>(
+            false, false, alpha1, alpha2, wc, cx1, cx2, x1, x2, a_c, a_a, pd, qd, pcc, pa, wa, &d,
+            k3, d_bits, limbs,
+        );
         best
     }
 
@@ -1071,6 +1148,12 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         let level = if use_theta { e + 2 } else { e };
         let pair_k = Self::PAIR_K.min(P::F3);
         let (lo, _) = Self::secret_degree_range();
+        let cof2 = &p1 / (BigUint::one() << level);
+        let cof3 = &p1 / BigUint::from(3u32).pow(P::F3 as u32);
+        // Fixed bases, rerandomised per attempt (`rerandomize_basis`): the
+        // cofactor multiplications are paid once per key, not per attempt.
+        let base2 = torsion_basis_cof(&ed, 2, level, &cof2, rng);
+        let base3 = torsion_basis_cof(&ed, 3, P::F3, &cof3, rng);
         KeygenPrep {
             ed,
             om,
@@ -1082,8 +1165,8 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
             e,
             use_theta,
             level,
-            cof2: &p1 / (BigUint::one() << level),
-            cof3: &p1 / BigUint::from(3u32).pow(P::F3 as u32),
+            base2,
+            base3,
             pair_cof: BigUint::from(3u32).pow((P::F3 - pair_k) as u32),
             pair_n: BigUint::from(3u32).pow(pair_k as u32),
             lo,
@@ -1220,7 +1303,7 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         // When p+1 has two spare bits of 2-torsion, sample the basis at order
         // 2^{e+2} and evaluate the (2^e, 2^e)-isogeny in the theta model.
         let fz = BigInt::from(f.clone());
-        let (r1, r2) = torsion_basis_cof(&ed, 2, prep.level, &prep.cof2, rng);
+        let (r1, r2) = rerandomize_basis(&ed, &prep.base2, 2, prep.level, rng);
         let r1e = if prep.use_theta {
             ed.dbl_iter(&r1, 2)
         } else {
@@ -1251,7 +1334,7 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         if !first_step_glues(&ed, &g1, &g2, e) {
             return None;
         }
-        let (y3a_full, y3b_full) = torsion_basis_cof(&ed, 3, P::F3, &prep.cof3, rng);
+        let (y3a_full, y3b_full) = rerandomize_basis(&ed, &prep.base3, 3, P::F3, rng);
         let r3 = y3a_full;
         let y3a = if prep.pair_cof.is_one() {
             y3a_full
@@ -1364,8 +1447,8 @@ struct KeygenPrep<P: ParamSet<N>, const N: usize> {
     e: usize,
     use_theta: bool,
     level: usize,
-    cof2: BigUint,
-    cof3: BigUint,
+    base2: (WPoint<F<P, N>>, WPoint<F<P, N>>),
+    base3: (WPoint<F<P, N>>, WPoint<F<P, N>>),
     pair_cof: BigUint,
     pair_n: BigUint,
     lo: BigUint,

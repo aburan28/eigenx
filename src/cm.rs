@@ -5,6 +5,7 @@
 use crate::field::Field;
 use crate::weier::{Isog2, WCurve, WIso, WPoint};
 use num_bigint::BigUint;
+use num_traits::Zero;
 use rand_core::RngCore;
 
 /// Jacobian point (X : Y : Z), x = X/Z^2, y = Y/Z^3.  Variable time.
@@ -243,6 +244,36 @@ pub fn torsion_basis_cof<F: Field, R: RngCore>(
             return (p, q);
         }
     }
+}
+
+/// A uniformly random basis of E[l^k] from a fixed one: (aP + bQ, cP + dQ)
+/// for uniform a, b, c, d mod l^k with l not dividing ad - bc.  Every basis
+/// is the image of `base` under exactly one matrix of GL2(Z/l^k), so the
+/// output has the same distribution as a fresh [`torsion_basis_cof`] draw,
+/// at the cost of four k log2(l)-bit multiplications instead of two
+/// cofactor multiplications (rejections included).
+pub fn rerandomize_basis<F: Field, R: RngCore>(
+    e: &WCurve<F>,
+    base: &(WPoint<F>, WPoint<F>),
+    l: u32,
+    k: usize,
+    rng: &mut R,
+) -> (WPoint<F>, WPoint<F>) {
+    let n = BigUint::from(l).pow(k as u32);
+    let lb = BigUint::from(l);
+    let (a, b, c, d) = loop {
+        let m: Vec<BigUint> = (0..4)
+            .map(|_| crate::ntheory::random_below(rng, &n))
+            .collect();
+        let det_l = (&m[0] * &m[3] + (&lb - 1u32) * (&m[1] * &m[2] % &lb)) % &lb;
+        if !det_l.is_zero() {
+            break (m[0].clone(), m[1].clone(), m[2].clone(), m[3].clone());
+        }
+    };
+    let (p, q) = base;
+    let comb =
+        |x: &BigUint, y: &BigUint| add_vartime(e, &mul_vartime(e, p, x), &mul_vartime(e, q, y));
+    (comb(&a, &b), comb(&c, &d))
 }
 
 /// The degree-2 endomorphism omega of E_D (omega^2 - t omega + 2 = 0).

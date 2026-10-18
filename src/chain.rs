@@ -10,7 +10,7 @@ use crate::field::Field;
 use crate::kani::{div_dbl_iter, div_dbl_iter_batch, Div, Glue, Richelot, Split};
 use crate::mont::{xdbl, ProjCurve, XPoint};
 use crate::strategy::optimal;
-use crate::theta::product_isogeny;
+use crate::theta::{product_isogeny, product_isogeny_with_kernel_images};
 use crate::weier::{complementary_2_torsion_xs, Isog2, ToMontgomery, WCurve, WIso, WPoint};
 use num_bigint::BigUint;
 
@@ -277,16 +277,14 @@ pub fn decaps_chain_theta<F: Field + Send + Sync>(
     pay = pay.iter().map(map_mont).collect();
     let (c1, c2) = (tm1.curve, tm2.curve);
 
-    // steps 3 .. e-2: (2^{e-4}, 2^{e-4})-isogeny in the theta model.
-    // Push the kernel generators alongside the payload so their order-4
-    // images are available for the trailing product-kernel step.
+    // steps 3 .. e-2: (2^{e-4}, 2^{e-4})-isogeny in the theta model.  The
+    // order-4 images of the kernel generators, needed by the trailing
+    // product-kernel step, come back after the payload.
     let n = e - 4;
     let strategy = optimal(n, 1.0, 1.0);
     let pay_len = pay.len();
-    let mut images = pay;
-    images.push(k1);
-    images.push(k2);
-    let ((e3, e4), outs) = product_isogeny(&(c1, c2), &k1, &k2, &images, n, &strategy);
+    let ((e3, e4), outs) =
+        product_isogeny_with_kernel_images(&(c1, c2), &k1, &k2, &pay, n, &strategy);
     let mut pay = outs[..pay_len].to_vec();
     let mut k1 = outs[pay_len];
     let mut k2 = outs[pay_len + 1];
