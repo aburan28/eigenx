@@ -231,6 +231,13 @@ fn codomain_torsion_x<F: Field>(domain: &WCurve<F>, phi: &Isog2<F>) -> F {
     F::conditional_select(&img1.x, &img0.x, !img0.inf)
 }
 
+/// Strategy weights for the theta chains, in F_p multiplications: doubling
+/// the kernel pair costs 2 (8S + 8M) = 80 and evaluating a pair of stack
+/// points 2 (4S + 4M) = 40 (counted with `--features opcount`). Equal
+/// weights cost about 3% more strategy work at e = 1072.
+const THETA_DBL_COST: f64 = 2.0;
+const THETA_EVAL_COST: f64 = 1.0;
+
 /// Theta-coordinate decapsulation chain: same outer schedule and signature
 /// as [`decaps_chain`], but the long middle (glue → (2,2)-steps → split) is
 /// evaluated with [`product_isogeny`] in the level-2 theta model.
@@ -281,7 +288,7 @@ pub fn decaps_chain_theta<F: Field + Send + Sync>(
     // order-4 images of the kernel generators, needed by the trailing
     // product-kernel step, come back after the payload.
     let n = e - 4;
-    let strategy = optimal(n, 1.0, 1.0);
+    let strategy = optimal(n, THETA_DBL_COST, THETA_EVAL_COST);
     let pay_len = pay.len();
     let ((e3, e4), outs) =
         product_isogeny_with_kernel_images(&(c1, c2), &k1, &k2, &pay, n, &strategy);
@@ -481,7 +488,7 @@ pub fn keygen_chain_theta<F: Field + Send + Sync>(
     let k1 = (map(&k1.0), map(&k1.1));
     let k2 = (map(&k2.0), map(&k2.1));
     let images: Vec<Pair<F>> = payload.iter().map(|p| (map(&p.0), map(&p.1))).collect();
-    let strategy = optimal(e, 1.0, 1.0);
+    let strategy = optimal(e, THETA_DBL_COST, THETA_EVAL_COST);
     let ((e3, e4), outs) = product_isogeny(&(tm.curve, tm.curve), &k1, &k2, &images, e, &strategy);
     Some((e3, e4, outs))
 }

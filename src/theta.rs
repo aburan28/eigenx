@@ -138,6 +138,31 @@ fn mask64(c: Choice) -> u64 {
     mask(c)
 }
 
+/// Theta-level operation counters (feature `opcount`): point doublings,
+/// image-point evaluations, (2,2)-steps and constant tables computed.
+#[cfg(feature = "opcount")]
+pub mod opcount {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    pub static DBL: AtomicU64 = AtomicU64::new(0);
+    pub static EVAL: AtomicU64 = AtomicU64::new(0);
+    pub static STEP: AtomicU64 = AtomicU64::new(0);
+    pub static PRECOM: AtomicU64 = AtomicU64::new(0);
+    /// (doublings, evaluations, steps, precomputations) since `reset`.
+    pub fn get() -> (u64, u64, u64, u64) {
+        let l = |a: &AtomicU64| a.load(Ordering::Relaxed);
+        (l(&DBL), l(&EVAL), l(&STEP), l(&PRECOM))
+    }
+    pub fn reset() {
+        for a in [&DBL, &EVAL, &STEP, &PRECOM] {
+            a.store(0, Ordering::Relaxed);
+        }
+    }
+    #[inline(always)]
+    pub(crate) fn bump(a: &AtomicU64, n: u64) {
+        a.fetch_add(n, Ordering::Relaxed);
+    }
+}
+
 /// Hadamard transform of four field elements.  Cost: 8a.
 #[inline(always)]
 fn to_hadamard<F: Field>(x: F, y: F, z: F, t: F) -> (F, F, F, F) {
@@ -224,6 +249,8 @@ impl<F: Field> ThetaStructure<F> {
     /// 8 constants needed for doubling and isogeny computations.  Cost:
     /// 14M + 5S.
     pub fn precomputation(o0: &ThetaPoint<F>) -> [F; 8] {
+        #[cfg(feature = "opcount")]
+        opcount::bump(&opcount::PRECOM, 1);
         let (a, b, c, d) = o0.coords();
         let (aa, bb, cc, dd) = to_squared_coords(a, b, c, d);
 
@@ -251,6 +278,8 @@ impl<F: Field> ThetaStructure<F> {
     /// `P <- [2]P` in place.  Cost: 8S + 8M.
     #[inline(always)]
     pub fn set_double_self(&self, p: &mut ThetaPoint<F>) {
+        #[cfg(feature = "opcount")]
+        opcount::bump(&opcount::DBL, 1);
         let (mut xp, mut yp, mut zp, mut tp) = p.squared_theta();
         xp = self.precom[4] * xp.square();
         yp = self.precom[5] * yp.square();
@@ -271,6 +300,8 @@ impl<F: Field> ThetaStructure<F> {
     /// Double two independent points together so their field products overlap.
     #[inline(always)]
     fn set_double_pair(&self, p: &mut ThetaPoint<F>, q: &mut ThetaPoint<F>) {
+        #[cfg(feature = "opcount")]
+        opcount::bump(&opcount::DBL, 2);
         let (xp, yp, zp, tp) = p.squared_theta();
         let (xq, yq, zq, tq) = q.squared_theta();
         let (c0, c1, c2, c3) = (
@@ -708,6 +739,11 @@ fn map_isog_points<F: Field>(
     d_inv: F,
     hadamard: [bool; 2],
 ) {
+    #[cfg(feature = "opcount")]
+    {
+        opcount::bump(&opcount::EVAL, image_points.len() as u64);
+        opcount::bump(&opcount::STEP, 1);
+    }
     if hadamard == [false, true] {
         let mut i = 0;
         while i + 1 < image_points.len() {
@@ -1096,6 +1132,15 @@ fn product_isogeny_inner<F: Field + Send + Sync>(
     let mut ker1 = *p1p2;
     let mut ker2 = *q1q2;
 
+    #[cfg(feature = "opcount")]
+    let trace = |what: &str| {
+        if std::env::var_os("EIGENX_OPCOUNT_TRACE").is_some() {
+            let (m, a) = crate::fp::opcount::get();
+            eprintln!("trace\t{what}\tfp_mul={m}\tfp_add={a}");
+        }
+    };
+    #[cfg(feature = "opcount")]
+    trace("product_isogeny:start");
     while prev != n - 1 {
         level.push(strategy[strat_idx]);
         let stepped = ep_double_pair(e1e2, &ker1, &ker2, strategy[strat_idx]);
@@ -1110,7 +1155,11 @@ fn product_isogeny_inner<F: Field + Send + Sync>(
     kernel_couple_pts.pop();
     level.pop();
 
+    #[cfg(feature = "opcount")]
+    trace("product_isogeny:elliptic_doublings_done");
     let (mut domain, mut kernel_pts) = gluing_isogeny(e1e2, &ker1, &ker2, &kernel_couple_pts);
+    #[cfg(feature = "opcount")]
+    trace("product_isogeny:gluing_done");
 
     for k in 1..n {
         prev = level.iter().sum();
@@ -1149,7 +1198,12 @@ fn product_isogeny_inner<F: Field + Send + Sync>(
         }
     }
 
+    #[cfg(feature = "opcount")]
+    trace("product_isogeny:theta_steps_done");
     domain = splitting_isomorphism(domain, &mut kernel_pts);
     let returned = num_image_points + if kernel_images { 2 } else { 0 };
-    split_to_product(&domain, &kernel_pts, returned)
+    let out = split_to_product(&domain, &kernel_pts, returned);
+    #[cfg(feature = "opcount")]
+    trace("product_isogeny:split_done");
+    out
 }

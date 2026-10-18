@@ -83,10 +83,19 @@ pub fn fp2_mul_gates_log2(p_bits: usize) -> f64 {
 }
 
 /// Gate cost of one (2,2)-chain of `steps` steps evaluating a handful of
-/// points: 2^8 F_p² multiplications per step is below a theta-coordinate
-/// implementation's count, so this is in the attacker's favour.
+/// points: 2^7.5 F_p² multiplications per step.
+///
+/// Measured (`examples/chain_opcount.rs`, feature `opcount`): the theta
+/// steps of the public-key degree test cost 566.6 F_p multiplications per
+/// step (doublings, image evaluations, codomain and constants), i.e. 188.9
+/// F_p² multiplications at three F_p products each, 2^7.56. The constant
+/// rounds that down, in the attacker's favour. It was 2^8 until 2026-10-18,
+/// on the mistaken belief that a theta step needs more than 256; that
+/// overcharged the attacker by about 0.5 bit in the gate columns.
+pub const CHAIN_STEP_FP2_MULS_LOG2: f64 = 7.5;
+
 pub fn chain_gates_log2(steps: usize, p_bits: usize) -> f64 {
-    (steps as f64).log2() + 8.0 + fp2_mul_gates_log2(p_bits)
+    (steps as f64).log2() + CHAIN_STEP_FP2_MULS_LOG2 + fp2_mul_gates_log2(p_bits)
 }
 
 /// Grover search over 2^n items with an oracle of `oracle_log2` gates whose

@@ -343,6 +343,39 @@ const fn ifma_params<const N: usize>(m: &[u64; N]) -> IfmaParams {
     prm
 }
 
+/// Operation counters (feature `opcount`): F_p multiplications (squares
+/// included; each product of `mul2`/`mul3` counts once) and additions or
+/// subtractions.
+#[cfg(feature = "opcount")]
+pub mod opcount {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    pub static MUL: AtomicU64 = AtomicU64::new(0);
+    pub static ADD: AtomicU64 = AtomicU64::new(0);
+    /// (multiplications, additions) since the last `reset`.
+    pub fn get() -> (u64, u64) {
+        (MUL.load(Ordering::Relaxed), ADD.load(Ordering::Relaxed))
+    }
+    pub fn reset() {
+        MUL.store(0, Ordering::Relaxed);
+        ADD.store(0, Ordering::Relaxed);
+    }
+    /// Print the counters with a label when `EIGENX_OPCOUNT_TRACE` is set.
+    pub fn trace(label: &str) {
+        if std::env::var_os("EIGENX_OPCOUNT_TRACE").is_some() {
+            let (m, a) = get();
+            eprintln!("trace\t{label}\tfp_mul={m}\tfp_add={a}");
+        }
+    }
+    #[inline(always)]
+    pub(crate) fn mul(n: u64) {
+        MUL.fetch_add(n, Ordering::Relaxed);
+    }
+    #[inline(always)]
+    pub(crate) fn add() {
+        ADD.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 /// Run-time switch for the IFMA path, for tests and benchmarks that
 /// compare it with the portable multiplier. On by default.
 static IFMA_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
@@ -1331,6 +1364,8 @@ impl<C: FpConfig<N>, const N: usize> Fp<C, N> {
 
     #[inline]
     pub fn add(self, o: &Self) -> Self {
+        #[cfg(feature = "opcount")]
+        opcount::add();
         let mut t = [0u64; N];
         let mut carry = false;
         for i in 0..N {
@@ -1343,6 +1378,8 @@ impl<C: FpConfig<N>, const N: usize> Fp<C, N> {
 
     #[inline]
     pub fn sub(self, o: &Self) -> Self {
+        #[cfg(feature = "opcount")]
+        opcount::add();
         let mut t = [0u64; N];
         let mut borrow = false;
         for i in 0..N {
@@ -1375,6 +1412,14 @@ impl<C: FpConfig<N>, const N: usize> Fp<C, N> {
     /// Montgomery product (CIOS), branch-free.
     #[inline(always)]
     pub fn mul(self, o: &Self) -> Self {
+        #[cfg(feature = "opcount")]
+        opcount::mul(1);
+        self.mul_inner(o)
+    }
+
+    /// `mul` without the operation counter (`mul2`/`mul3` count their own).
+    #[inline(always)]
+    fn mul_inner(self, o: &Self) -> Self {
         if C::IFMA.w > 0 && ifma_active() {
             let mut out = [Self::ZERO];
             if Self::mul_ifma_k([&self], [o], &mut out) {
@@ -1543,6 +1588,8 @@ impl<C: FpConfig<N>, const N: usize> Fp<C, N> {
         a2: &Self,
         b2: &Self,
     ) -> (Self, Self, Self) {
+        #[cfg(feature = "opcount")]
+        opcount::mul(3);
         if C::IFMA.w > 0 && ifma_active() {
             let mut out = [Self::ZERO; 3];
             if Self::mul_ifma_k([a0, a1, a2], [b0, b1, b2], &mut out) {
@@ -1551,7 +1598,7 @@ impl<C: FpConfig<N>, const N: usize> Fp<C, N> {
         }
         // As in `mul2`: only Montgomery-friendly moduli take the interleaved path.
         if (N == 21 && C::P1_ZERO_LIMBS == 16) || C::P1_ZERO_LIMBS == 0 || N > MAX_LIMBS {
-            return (a0.mul(b0), a1.mul(b1), a2.mul(b2));
+            return (a0.mul_inner(b0), a1.mul_inner(b1), a2.mul_inner(b2));
         }
         let mut lo0 = [0u64; N];
         let mut lo1 = [0u64; N];
@@ -1594,6 +1641,8 @@ impl<C: FpConfig<N>, const N: usize> Fp<C, N> {
     /// Two independent Montgomery products, interleaved. Used by `Fp2` squaring.
     #[inline(always)]
     pub(crate) fn mul2(a0: &Self, b0: &Self, a1: &Self, b1: &Self) -> (Self, Self) {
+        #[cfg(feature = "opcount")]
+        opcount::mul(2);
         if C::IFMA.w > 0 && ifma_active() {
             let mut out = [Self::ZERO; 2];
             if Self::mul_ifma_k([a0, a1], [b0, b1], &mut out) {
@@ -1603,7 +1652,7 @@ impl<C: FpConfig<N>, const N: usize> Fp<C, N> {
         // The interleaved path below uses the friendly reduction only; any
         // other modulus takes the generic product, as `mul` does.
         if (N == 21 && C::P1_ZERO_LIMBS == 16) || C::P1_ZERO_LIMBS == 0 || N > MAX_LIMBS {
-            return (a0.mul(b0), a1.mul(b1));
+            return (a0.mul_inner(b0), a1.mul_inner(b1));
         }
         let mut lo0 = [0u64; N];
         let mut lo1 = [0u64; N];

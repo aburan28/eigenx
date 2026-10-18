@@ -279,14 +279,20 @@ fn sign_pattern<P: ParamSet<N>, const N: usize>(
             weil_ratio(mh[1], mx2[1]),
         )
     });
+    #[cfg(feature = "opcount")]
+    crate::fp::opcount::trace("sign:4_weil_on_EC_done");
     let r1_full = full_order_3k(&e_g1, k3);
     let base = F::<P, N>::conditional_select(&e_g2, &e_g1, r1_full);
     let tgt = F::<P, N>::conditional_select(&e_h2, &e_h1, r1_full);
     let kk = dlog_3k(&base, &tgt, k3);
     let kk = ctx.modd.to_scalar_width(&ctx.modd.reduce(&kk), limbs);
     let khat = wc.sub(&xh, &smul_ct(&a_c, &xg, &kk, d_bits));
+    #[cfg(feature = "opcount")]
+    crate::fp::opcount::trace("sign:dlog1_smul_done");
     let mut pts = [XPoint::from_affine(x1.x), XPoint::from_affine(x2.x)];
     let cod = chain3(&pcc, &XPoint::from_affine(khat.x), k3, &mut pts);
+    #[cfg(feature = "opcount")]
+    crate::fp::opcount::trace("sign:chain3_done");
     let a_cod = cod.affine_a();
     let land = a_cod.ct_eq(&a_a) | a_cod.ct_eq(&(-a_a));
     let neg = a_cod.ct_eq(&(-a_a));
@@ -308,7 +314,11 @@ fn sign_pattern<P: ParamSet<N>, const N: usize>(
         let m_pd = m_pd.join().expect("weil");
         (weil_ratio(m_kg[0], m_qd[0]), weil_ratio(m_pd[0], m_kg[1]))
     });
+    #[cfg(feature = "opcount")]
+    crate::fp::opcount::trace("sign:3_weil_on_EA_done");
     let s = dlog_3k(&z1, &z2, k3);
+    #[cfg(feature = "opcount")]
+    crate::fp::opcount::trace("sign:dlog2_done");
     (ctx.modd.to_scalar_width(&ctx.modd.reduce(&s), limbs), land)
 }
 
@@ -854,8 +864,14 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         let mut out = [0u8; SS_BYTES];
         out.copy_from_slice(&reject);
         let ctx = Ctx::<P, N>::new();
+        #[cfg(feature = "opcount")]
+        crate::fp::opcount::trace("decaps:start");
         let s = Self::recover_s_core(sk, prep);
+        #[cfg(feature = "opcount")]
+        crate::fp::opcount::trace("decaps:recover_s_done");
         let ct2 = Self::enc_det_core(&ctx, &prep.pkf, &prep.pk_basis, &s, &sk.pkh);
+        #[cfg(feature = "opcount")]
+        crate::fp::opcount::trace("decaps:reencrypt_done");
         let same = crate::ct::bytes_eq(&ct2, &ct.bytes);
         let k = shake(
             &[b"EigenSeta-K", &Self::s_to_bytes(&ctx, &s), &ct.bytes],
@@ -902,6 +918,8 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         });
         let k1 = (s_pt, k1b.neg());
         let k2 = (t_pt, k2b.neg());
+        #[cfg(feature = "opcount")]
+        crate::fp::opcount::trace("recover:kernel_ladders_done");
         let o = WPoint::infinity();
         // Theta (2,2)-chain. Split recovers points from
         // the Kummer line (y-signs ambiguous) and may swap product factors per
@@ -927,6 +945,8 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
                 cx2.join().expect("ladder"),
             )
         });
+        #[cfg(feature = "opcount")]
+        crate::fp::opcount::trace("recover:chain_and_3power_ladders_done");
         let sig = WIso::find(&fc, &wc);
         let cpx3 = wc.add(&cpx1, &cpx2);
         let mut alpha1 = WPoint::infinity();
@@ -962,6 +982,8 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
         // 3^⌈F/2⌉ | c; key generation's self-test rejects such a key.  All
         // selections are constant time; the tail then runs once instead of
         // once per sign pattern.
+        #[cfg(feature = "opcount")]
+        crate::fp::opcount::trace("recover:pick_alpha_done");
         let same = wc.add(&alpha1, &alpha2).x.ct_eq(&alpha3.x);
         let alpha2 = WPoint::conditional_select(&alpha2.neg(), &alpha2, same);
         let psi_a1 = wc.sub(&alpha1, &cx1);
@@ -975,6 +997,8 @@ impl<P: ParamSet<N>, const N: usize> EigenSeta<P, N> {
             let w_c = weil_ratio(m3.join().expect("weil")[0], m4.join().expect("weil")[0]);
             (w_cand, w_c.square().square())
         });
+        #[cfg(feature = "opcount")]
+        crate::fp::opcount::trace("recover:sign_pairings_done");
         let wrong = w_cand.ct_eq(&w_tgt);
         let alpha1 = WPoint::conditional_select(&alpha1, &alpha1.neg(), wrong);
         let alpha2 = WPoint::conditional_select(&alpha2, &alpha2.neg(), wrong);
