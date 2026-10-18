@@ -20,6 +20,12 @@ num-bigint = "0.4"
 num-traits = "0.2"
 num-integer = "0.1"
 smallvec = "1.13"
+# AVX-512 IFMA field multiplication: the only unsafe code, isolated in its
+# own crate; eigen_seta itself keeps #![forbid(unsafe_code)].
+eigen-fp-ifma = { path = "fp-ifma" }
+
+[workspace]
+members = ["fp-ifma"]
 
 [lints.clippy]
 # Field methods deliberately mirror the operator traits and are called by

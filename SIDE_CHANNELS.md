@@ -55,6 +55,7 @@ gives the tool-based check.
 | Component | File | Status | Notes |
 |---|---|---|---|
 | F_p mul (CIOS; Montgomery-friendly SOS when p + 1 = 0 mod 2^64) | `fp.rs` | CT | Fixed loops. Reduction uses a borrow mask. The friendly path skips the zero limbs of p + 1, which is a public constant. |
+| F_p mul, AVX-512 IFMA path (radix 2^52; used when the CPU has IFMA, with VBMI for the operand conversion) | `fp-ifma/src/lib.rs`, `fp.rs` | CT | The only `unsafe` code, in its own crate; `eigen_seta` keeps `#![forbid(unsafe_code)]`. Fixed trip counts; the Montgomery digit is taken from lane 0 with a mask, never a branch; the final subtraction is masked. Operand conversion uses byte permutes with tables fixed per field. The CPU-feature branch is public. Byte-identical to the portable path on all five sets (`tests/fp_ifma.rs`). |
 | F_p add, sub, neg | `fp.rs` | CT | Borrow-masked final subtraction. |
 | F_p inversion: Bernstein–Yang safegcd | `safegcd.rs` | CT, after a fix | Public divstep count ⌊(49B + 57)/17⌋, rounded up to a multiple of 62. Swaps and negations are masks. 0⁻¹ = 0. Checked against Fermat at 1, 2, 9, 21 and 42 limbs (`tests/field.rs`). The sign masks needed `black_box` (§5). |
 | F_p sqrt, Legendre | `fp.rs` | CT | Fixed public exponents. |
@@ -165,6 +166,49 @@ What this check does and does not show:
   that are all loaded.
 * They do not cover other compilers, other targets, or other optimisation
   settings. Rerun the probe on the deployment build.
+
+### 5.1 The AVX-512 IFMA multiplier
+
+Valgrind 3.22 does not execute AVX-512 and hides it through CPUID. Under
+callgrind the binary therefore takes the portable multiplier, and the
+instruction counts above say nothing about the IFMA path. The same holds for
+`examples/ct_probe_files.rs`. That probe compares two builds on identical
+inputs and counts every thread: total Ir of decapsulation minus a
+prepare-only run, because `--toggle-collect` counts only the thread that
+enters `probe_core`. Two other checks cover the IFMA path.
+
+**Compiled-code branch audit.** In the release binary, every conditional
+branch of the three IFMA kernels (`mont_mul64_k` for K = 1, 2, 3 at L1)
+compares one of two things: a loop counter or slice length against a
+constant, or two such counters or lengths. None compares a value loaded from
+the operands or computed from them.
+
+**Statistical timing test, decapsulation.** `examples/dudect_decaps.rs` was
+run at L1, 1,000 samples per class, interleaved, once with IFMA and once with
+the portable path (`portable`). The host was a shared 4-vCPU Xeon VM. Medians
+are of the secret phase.
+
+| path | median fixed / random | t(raw) | t(≤p50) | t(≤p75) | t(≤p90) |
+|---|---|---|---|---|---|
+| IFMA | 579.8 / 580.6 ms | +0.47 | +0.87 | −0.01 | −0.13 |
+| portable | 952.0 / 957.8 ms | −1.09 | −1.34 | −1.21 | −2.14 |
+
+**A field-level test that does not discriminate.** `examples/dudect_fp.rs`
+times batches of 64 multiplications. With a fixed operand set against fresh
+random operands, it reports |t| far above 4.5 on *both* paths, including the
+portable path, whose instruction counts are identical for all inputs. One
+cause was found and fixed: the two classes prepared their operand buffers
+differently, so their cache and branch-predictor state differed. Two changes
+reduced |t| but did not remove it: drawing the fixed pair at random, and
+using 64 distinct fixed pairs. The last run gave t(≤p75) −150 for IFMA and
+−102 for portable.
+
+The likely remaining source is operand-dependent power, which can change
+timing even for constant-time code. That is a hardware effect outside this
+code's control-flow model. IFMA's |t| is about 1.5–2× the portable one,
+which fits the larger 512-bit datapath, but that explanation is not proven.
+The decapsulation-level test above is the operative one. The field-level
+numbers are recorded so a reader can judge them.
 
 ## 6. Residual issues and known leaks
 

@@ -7,7 +7,7 @@
 //! samples cropped at several percentiles (Reparaz–Balasch–Verbauwhede).
 //! |t| > 4.5 is the usual "leak detected" threshold.
 //!
-//!   cargo run --release --example dudect_decaps -- [samples_per_class]
+//!   cargo run --release --example dudect_decaps -- [samples_per_class] [portable]
 use eigen_seta::kem::{Ciphertext, DecapsPrep, EigenSeta, SecretKey};
 use eigen_seta::params::{L1Fp, L1};
 use rand_core::{OsRng, RngCore};
@@ -42,6 +42,10 @@ fn main() {
         .nth(1)
         .and_then(|s| s.parse().ok())
         .unwrap_or(300);
+    if std::env::args().nth(2).as_deref() == Some("portable") {
+        eigen_seta::fp::set_ifma(false);
+    }
+    eprintln!("ifma active: {}", eigen_seta::fp::ifma_active());
     let mut rng = OsRng;
     let (pk, sk) = K::keygen(&mut rng);
     let (pk2, _) = K::keygen(&mut rng);
