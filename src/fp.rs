@@ -261,6 +261,118 @@ pub trait FpConfig<const N: usize>: 'static + Copy + Clone + Send + Sync + fmt::
     /// primes c*2^a*3^b - 1).  When positive, p = -1 mod 2^64 and the
     /// reduction skips those limbs.
     const P1_ZERO_LIMBS: usize = p1_zero_limbs(&Self::MODULUS);
+    /// p and p + 1 in radix 2^52 for the AVX-512 IFMA multiplier.
+    const IFMA: IfmaParams = ifma_params(&Self::MODULUS);
+}
+
+/// Largest IFMA operand: 13 registers of eight 52-bit limbs (Q5).
+const IFMA_WORDS: usize = 8 * 13;
+
+/// p and p + 1 in radix 2^52 for `eigen_fp_ifma`.
+///
+/// The IFMA Montgomery radix is R52 = 2^(52 nl) with nl = ceil(64 N / 52).
+/// The 64-bit code uses R = 2^(64 N). Shifting the left operand up by
+/// `shift = 52 nl - 64 N` bits makes the IFMA product a·b·R^-1, the same
+/// as `mul` (see `Fp::mul_ifma`). `w = 0` disables the path: no supported
+/// register count, or p ≢ -1 (mod 2^52).
+#[derive(Clone, Copy, Debug)]
+pub struct IfmaParams {
+    nl: usize,
+    w: usize,
+    shift: usize,
+    z1: usize,
+    p: [u64; IFMA_WORDS],
+    p1: [u64; IFMA_WORDS],
+    /// In-register 64 → 52-bit conversion for left (shifted) and right
+    /// operands (`eigen_fp_ifma::mont_mul64_k`).
+    ta: eigen_fp_ifma::ConvTables,
+    tb: eigen_fp_ifma::ConvTables,
+}
+
+/// 52 bits of `a` starting at bit `pos`, with bits below 0 and above the
+/// top word read as zero. `pos` is public, so the branches are too.
+const fn bits52<const N: usize>(a: &[u64; N], pos: isize) -> u64 {
+    const M: u64 = (1 << 52) - 1;
+    if pos < 0 {
+        return (a[0] << (-pos) as u32) & M;
+    }
+    let (w, off) = ((pos / 64) as usize, (pos % 64) as u32);
+    if w >= N {
+        return 0;
+    }
+    let lo = a[w] >> off;
+    let hi = if off > 12 && w + 1 < N {
+        a[w + 1] << (64 - off)
+    } else {
+        0
+    };
+    (lo | hi) & M
+}
+
+const fn ifma_params<const N: usize>(m: &[u64; N]) -> IfmaParams {
+    let nl = (64 * N).div_ceil(52);
+    let w = nl.div_ceil(8);
+    let mut prm = IfmaParams {
+        nl,
+        w: 0,
+        shift: 52 * nl - 64 * N,
+        z1: 0,
+        p: [0; IFMA_WORDS],
+        p1: [0; IFMA_WORDS],
+        ta: eigen_fp_ifma::ConvTables::new(N, nl, 52 * nl - 64 * N),
+        tb: eigen_fp_ifma::ConvTables::new(N, nl, 0),
+    };
+    // p + 1, and whether p = -1 mod 2^52 (the Montgomery digit is acc_0).
+    let p1 = add_small(m, 1);
+    if m[0] & ((1 << 52) - 1) != (1 << 52) - 1 || w * 8 > IFMA_WORDS {
+        return prm;
+    }
+    let mut i = 0;
+    while i < nl {
+        prm.p[i] = bits52(m, 52 * i as isize);
+        prm.p1[i] = bits52(&p1, 52 * i as isize);
+        i += 1;
+    }
+    // The top bit of p + 1 may carry past 64 N bits only if p = 2^(64N) - 1.
+    let mut z = 0;
+    while z < nl && prm.p1[z] == 0 {
+        z += 1;
+    }
+    prm.z1 = z / 8;
+    prm.w = w;
+    prm
+}
+
+/// Run-time switch for the IFMA path, for tests and benchmarks that
+/// compare it with the portable multiplier. On by default.
+static IFMA_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Run-time switch for the VBMI in-register conversion inside the IFMA
+/// path (`set_ifma64`). On by default.
+static IFMA64: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Enable or disable the in-register (AVX-512 VBMI) operand conversion of
+/// the IFMA path, for tests that compare it with the scalar conversion.
+pub fn set_ifma64(enabled: bool) {
+    IFMA64.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Enable or disable the AVX-512 IFMA multiplier (process-wide). It is used
+/// only when also available on this CPU.
+pub fn set_ifma(enabled: bool) {
+    IFMA_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether the IFMA multiplier supports this field (register count and
+/// p ≡ -1 mod 2^52). Independent of the CPU.
+pub fn ifma_supports<C: FpConfig<N>, const N: usize>() -> bool {
+    matches!(C::IFMA.w, 4 | 5 | 7 | 10 | 13)
+}
+
+/// Whether multiplications currently take the IFMA path. A public property
+/// of the machine and the switch, never of the operands.
+pub fn ifma_active() -> bool {
+    IFMA_ENABLED.load(std::sync::atomic::Ordering::Relaxed) && eigen_fp_ifma::available()
 }
 
 const fn p1_zero_limbs<const N: usize>(p: &[u64; N]) -> usize {
@@ -1263,6 +1375,12 @@ impl<C: FpConfig<N>, const N: usize> Fp<C, N> {
     /// Montgomery product (CIOS), branch-free.
     #[inline(always)]
     pub fn mul(self, o: &Self) -> Self {
+        if C::IFMA.w > 0 && ifma_active() {
+            let mut out = [Self::ZERO];
+            if Self::mul_ifma_k([&self], [o], &mut out) {
+                return out[0];
+            }
+        }
         if N == 21 && C::P1_ZERO_LIMBS == 16 {
             let aa = pack21(&self.l);
             let bb = pack21(&o.l);
@@ -1279,6 +1397,106 @@ impl<C: FpConfig<N>, const N: usize> Fp<C, N> {
             self.mul_friendly(o)
         } else {
             self.mul_cios(o)
+        }
+    }
+
+    /// Montgomery products through `eigen_fp_ifma` (AVX-512 IFMA, radix
+    /// 2^52), K of them interleaved, written to `out`. Each left operand
+    /// enters as a·2^shift, so a result is a·2^shift·b·2^(-52 nl) =
+    /// a·b·2^(-64 N), the same value as `mul`. Fixed instruction sequence:
+    /// the conversions move every limb at public positions. `false` (and
+    /// `out` untouched) if the register count is unsupported.
+    #[inline(always)]
+    fn mul_ifma_k<const K: usize>(a: [&Self; K], b: [&Self; K], out: &mut [Self; K]) -> bool {
+        match C::IFMA.w {
+            4 => Self::mul_ifma_w::<4, 32, K>(a, b, out),
+            5 => Self::mul_ifma_w::<5, 40, K>(a, b, out),
+            7 => Self::mul_ifma_w::<7, 56, K>(a, b, out),
+            10 => Self::mul_ifma_w::<10, 80, K>(a, b, out),
+            13 => Self::mul_ifma_w::<13, 104, K>(a, b, out),
+            _ => false,
+        }
+    }
+
+    /// `mul_ifma_k` with W registers of eight limbs (L = 8 W words).
+    #[inline(always)]
+    fn mul_ifma_w<const W: usize, const L: usize, const K: usize>(
+        a: [&Self; K],
+        b: [&Self; K],
+        out: &mut [Self; K],
+    ) -> bool {
+        let prm = &C::IFMA;
+        let mut r52 = [[0u64; L]; K];
+        let (pp, p1) = (&prm.p[..L], &prm.p1[..L]);
+        if IFMA64.load(std::sync::atomic::Ordering::Relaxed) && eigen_fp_ifma::available64() {
+            let ok = {
+                let outs: [&mut [u64]; K] = r52.each_mut().map(|r| &mut r[..]);
+                let ins_a: [&[u64]; K] = a.map(|x| &x.l[..]);
+                let ins_b: [&[u64]; K] = b.map(|x| &x.l[..]);
+                eigen_fp_ifma::mont_mul64_k::<W, K>(
+                    outs, ins_a, ins_b, &prm.ta, &prm.tb, pp, p1, prm.nl, prm.z1,
+                )
+            };
+            if ok {
+                for j in 0..K {
+                    Self::from52(&r52[j], &mut out[j].l);
+                }
+                return true;
+            }
+        }
+        let mut a52 = [[0u64; L]; K];
+        let mut b52 = [[0u64; L]; K];
+        for j in 0..K {
+            Self::to52(&a[j].l, prm.shift, prm.nl, &mut a52[j]);
+            Self::to52(&b[j].l, 0, prm.nl, &mut b52[j]);
+        }
+        let ok = {
+            let outs: [&mut [u64]; K] = r52.each_mut().map(|r| &mut r[..]);
+            let ins_a: [&[u64]; K] = a52.each_ref().map(|r| &r[..]);
+            let ins_b: [&[u64]; K] = b52.each_ref().map(|r| &r[..]);
+            eigen_fp_ifma::mont_mul_k::<W, K>(outs, ins_a, ins_b, pp, p1, prm.nl, prm.z1)
+        };
+        if ok {
+            for j in 0..K {
+                Self::from52(&r52[j], &mut out[j].l);
+            }
+        }
+        ok
+    }
+
+    /// 64-bit limbs to `nl` 52-bit limbs in `out`, the value shifted up
+    /// `shift` bits, through a bit buffer. Control flow depends on counters
+    /// only.
+    #[inline(always)]
+    fn to52(x: &[u64; N], shift: usize, nl: usize, out: &mut [u64]) {
+        const M: u64 = (1 << 52) - 1;
+        let (mut buf, mut have, mut idx) = (0u128, shift, 0usize);
+        for o in out.iter_mut().take(nl) {
+            if have < 52 && idx < N {
+                buf |= (x[idx] as u128) << have;
+                have += 64;
+                idx += 1;
+            }
+            *o = (buf as u64) & M;
+            buf >>= 52;
+            have = have.saturating_sub(52);
+        }
+    }
+
+    /// 52-bit limbs back to 64-bit limbs in `out`; the value is below
+    /// p < 2^(64 N).
+    #[inline(always)]
+    fn from52(r: &[u64], out: &mut [u64; N]) {
+        let (mut buf, mut have, mut k) = (0u128, 0usize, 0usize);
+        for w in out.iter_mut() {
+            while have < 64 && k < r.len() {
+                buf |= (r[k] as u128) << have;
+                have += 52;
+                k += 1;
+            }
+            *w = buf as u64;
+            buf >>= 64;
+            have = have.saturating_sub(64);
         }
     }
 
@@ -1325,6 +1543,12 @@ impl<C: FpConfig<N>, const N: usize> Fp<C, N> {
         a2: &Self,
         b2: &Self,
     ) -> (Self, Self, Self) {
+        if C::IFMA.w > 0 && ifma_active() {
+            let mut out = [Self::ZERO; 3];
+            if Self::mul_ifma_k([a0, a1, a2], [b0, b1, b2], &mut out) {
+                return (out[0], out[1], out[2]);
+            }
+        }
         // As in `mul2`: only Montgomery-friendly moduli take the interleaved path.
         if (N == 21 && C::P1_ZERO_LIMBS == 16) || C::P1_ZERO_LIMBS == 0 || N > MAX_LIMBS {
             return (a0.mul(b0), a1.mul(b1), a2.mul(b2));
@@ -1370,6 +1594,12 @@ impl<C: FpConfig<N>, const N: usize> Fp<C, N> {
     /// Two independent Montgomery products, interleaved. Used by `Fp2` squaring.
     #[inline(always)]
     pub(crate) fn mul2(a0: &Self, b0: &Self, a1: &Self, b1: &Self) -> (Self, Self) {
+        if C::IFMA.w > 0 && ifma_active() {
+            let mut out = [Self::ZERO; 2];
+            if Self::mul_ifma_k([a0, a1], [b0, b1], &mut out) {
+                return (out[0], out[1]);
+            }
+        }
         // The interleaved path below uses the friendly reduction only; any
         // other modulus takes the generic product, as `mul` does.
         if (N == 21 && C::P1_ZERO_LIMBS == 16) || C::P1_ZERO_LIMBS == 0 || N > MAX_LIMBS {

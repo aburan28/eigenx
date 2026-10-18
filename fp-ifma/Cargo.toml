@@ -1,0 +1,10 @@
+[package]
+name = "eigen-fp-ifma"
+version = "0.1.0"
+edition = "2021"
+description = "AVX-512 IFMA Montgomery multiplication for Eigen-Seta's Montgomery-friendly primes (the only unsafe code in eigenx)"
+license = "MIT"
+repository = "https://github.com/aburan28/eigenx"
+publish = false
+
+[dependencies]
