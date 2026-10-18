@@ -6,7 +6,11 @@
 //! batch of 64 multiplications. Welch's t on raw and percentile-cropped
 //! samples (Reparaz–Balasch–Verbauwhede); |t| > 4.5 flags a leak.
 //!
-//!   cargo run --release --example dudect_fp -- <L1|L3|L5> [samples_per_class]
+//! Both classes generate random operands before each batch; class 0 then
+//! overwrites them with the fixed pair, so the work done outside the timed
+//! region is the same. `portable` as a third argument disables IFMA.
+//!
+//!   cargo run --release --example dudect_fp -- <L1|L3|L5> [samples_per_class] [portable]
 use eigen_seta::fp::{ifma_active, Fp, FpConfig};
 use eigen_seta::params::{L1Fp, L3Fp, L5Fp};
 use rand_core::{OsRng, RngCore};
@@ -35,22 +39,25 @@ fn welch(a: &[f64], b: &[f64]) -> f64 {
 
 fn run<C: FpConfig<N>, const N: usize>(n: usize) {
     const BATCH: usize = 64;
-    let fixed = (Fp::<C, N>::one(), Fp::<C, N>::one().neg());
+    // a fixed pair drawn once at random (structured values such as 1 and -1
+    // give a large |t| even on the instruction-count-checked portable code)
+    let fixed = (random::<C, N>(), random::<C, N>());
     let mut s = [Vec::with_capacity(n), Vec::with_capacity(n)];
     while s[0].len() < n || s[1].len() < n {
         let class = (OsRng.next_u32() & 1) as usize;
         if s[class].len() >= n {
             continue;
         }
-        let ops: Vec<(Fp<C, N>, Fp<C, N>)> = (0..BATCH)
-            .map(|_| {
-                if class == 0 {
-                    fixed
-                } else {
-                    (random::<C, N>(), random::<C, N>())
-                }
-            })
+        // Identical preparation for both classes: draw random operands, then
+        // one pass over the buffer that keeps them (class 1) or replaces them
+        // with the fixed pair (class 0). Only the values differ.
+        let mut ops: Vec<(Fp<C, N>, Fp<C, N>)> = (0..BATCH)
+            .map(|_| (random::<C, N>(), random::<C, N>()))
             .collect();
+        for op in ops.iter_mut() {
+            let r = *op;
+            *op = if class == 0 { fixed } else { r };
+        }
         let t = Instant::now();
         for (a, b) in &ops {
             black_box(black_box(*a) * black_box(*b));
@@ -77,6 +84,9 @@ fn run<C: FpConfig<N>, const N: usize>(n: usize) {
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     let n = a.get(2).and_then(|s| s.parse().ok()).unwrap_or(200_000);
+    if a.get(3).map(String::as_str) == Some("portable") {
+        eigen_seta::fp::set_ifma(false);
+    }
     match a.get(1).map(String::as_str).unwrap_or("L1") {
         "L1" => run::<L1Fp, 21>(n),
         "L3" => run::<L3Fp, 32>(n),
