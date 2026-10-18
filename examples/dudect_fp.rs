@@ -1,13 +1,13 @@
 //! dudect-style timing test of F_p multiplication (whichever path is active:
 //! the AVX-512 IFMA kernel where available, else the portable code).
 //!
-//! Class 0 multiplies a fixed operand pair, class 1 a fresh random pair per
-//! sample; classes are interleaved in a random order. Each sample times a
-//! batch of 64 multiplications. Welch's t on raw and percentile-cropped
+//! Each sample times a batch of 64 multiplications. Class 0 uses the same
+//! 64 operand pairs every time (drawn once); class 1 draws 64 fresh pairs per
+//! sample. Classes are interleaved in a random order. Welch's t on raw and percentile-cropped
 //! samples (Reparaz–Balasch–Verbauwhede); |t| > 4.5 flags a leak.
 //!
 //! Both classes generate random operands before each batch; class 0 then
-//! overwrites them with the fixed pair, so the work done outside the timed
+//! overwrites them with its fixed set, so the work done outside the timed
 //! region is the same. `portable` as a third argument disables IFMA.
 //!
 //!   cargo run --release --example dudect_fp -- <L1|L3|L5> [samples_per_class] [portable]
@@ -39,9 +39,13 @@ fn welch(a: &[f64], b: &[f64]) -> f64 {
 
 fn run<C: FpConfig<N>, const N: usize>(n: usize) {
     const BATCH: usize = 64;
-    // a fixed pair drawn once at random (structured values such as 1 and -1
-    // give a large |t| even on the instruction-count-checked portable code)
-    let fixed = (random::<C, N>(), random::<C, N>());
+    // Class 0: a fixed set of BATCH distinct pairs, drawn once. A single
+    // pair repeated BATCH times gives a large |t| even on the
+    // instruction-count-checked portable code (fewer bit transitions), so
+    // both classes use BATCH distinct pairs per sample.
+    let fixed: Vec<(Fp<C, N>, Fp<C, N>)> = (0..BATCH)
+        .map(|_| (random::<C, N>(), random::<C, N>()))
+        .collect();
     let mut s = [Vec::with_capacity(n), Vec::with_capacity(n)];
     while s[0].len() < n || s[1].len() < n {
         let class = (OsRng.next_u32() & 1) as usize;
@@ -54,9 +58,9 @@ fn run<C: FpConfig<N>, const N: usize>(n: usize) {
         let mut ops: Vec<(Fp<C, N>, Fp<C, N>)> = (0..BATCH)
             .map(|_| (random::<C, N>(), random::<C, N>()))
             .collect();
-        for op in ops.iter_mut() {
+        for (op, f) in ops.iter_mut().zip(fixed.iter()) {
             let r = *op;
-            *op = if class == 0 { fixed } else { r };
+            *op = if class == 0 { *f } else { r };
         }
         let t = Instant::now();
         for (a, b) in &ops {
