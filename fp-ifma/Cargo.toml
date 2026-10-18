@@ -8,3 +8,9 @@ repository = "https://github.com/aburan28/eigenx"
 publish = false
 
 [dependencies]
+
+[lints.clippy]
+# Register loops index several arrays by the same k (as in eigen_seta's
+# field code), and the kernels take the modulus and conversion tables.
+needless_range_loop = "allow"
+too_many_arguments = "allow"

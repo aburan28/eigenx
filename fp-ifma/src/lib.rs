@@ -134,7 +134,12 @@ impl ConvTables {
     /// Tables for an input of `n64` 64-bit limbs read as `nl` 52-bit limbs,
     /// with the value shifted up `shift` bits (`shift < 52`).
     pub const fn new(n64: usize, nl: usize, shift: usize) -> Self {
-        let mut t = ConvTables { base: [0; 16], perm: [[0; 64]; 16], keep: [0; 16], ctrl: [[0; 64]; 16] };
+        let mut t = ConvTables {
+            base: [0; 16],
+            perm: [[0; 64]; 16],
+            keep: [0; 16],
+            ctrl: [[0; 64]; 16],
+        };
         let regs = nl.div_ceil(8);
         let mut k = 0;
         while k < regs && k < 16 {
@@ -374,10 +379,15 @@ mod x86 {
         let bytes = 8 * x.len();
         let base = t.base[k];
         let avail = bytes.saturating_sub(base).min(64);
-        let lmask: u64 = if avail == 64 { u64::MAX } else { (1u64 << avail) - 1 };
+        let lmask: u64 = if avail == 64 {
+            u64::MAX
+        } else {
+            (1u64 << avail) - 1
+        };
         // SAFETY: the mask covers only bytes base..base + avail, inside x;
         // masked-off bytes are not accessed. When avail is 0 nothing loads.
-        let raw = unsafe { _mm512_maskz_loadu_epi8(lmask, x.as_ptr().cast::<i8>().wrapping_add(base)) };
+        let raw =
+            unsafe { _mm512_maskz_loadu_epi8(lmask, x.as_ptr().cast::<i8>().wrapping_add(base)) };
         // SAFETY: the tables are 64-byte arrays.
         let (perm, ctrl) = unsafe {
             (
@@ -386,7 +396,10 @@ mod x86 {
             )
         };
         let g = _mm512_maskz_permutexvar_epi8(t.keep[k], perm, raw);
-        _mm512_and_si512(_mm512_multishift_epi64_epi8(ctrl, g), _mm512_set1_epi64(MASK as i64))
+        _mm512_and_si512(
+            _mm512_multishift_epi64_epi8(ctrl, g),
+            _mm512_set1_epi64(MASK as i64),
+        )
     }
 
     /// [`mont_mul_k`] with operands read from 64-bit limbs via `load52`.

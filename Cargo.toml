@@ -24,6 +24,9 @@ smallvec = "1.13"
 # own crate; eigen_seta itself keeps #![forbid(unsafe_code)].
 eigen-fp-ifma = { path = "fp-ifma" }
 
+[workspace]
+members = ["fp-ifma"]
+
 [lints.clippy]
 # Field methods deliberately mirror the operator traits and are called by
 # their trait implementations; renaming them would obscure those CT paths.
