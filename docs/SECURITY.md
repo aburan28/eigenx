@@ -232,10 +232,15 @@ search over 2^n items with an oracle of 2^g gates and depth 2^(g−4):
   2^(n + (g − 4) + g − MAXDEPTH) — Grover parallelises badly, which is what
   makes the depth limit bite.
 
-Oracle costs: a (2,2)-chain of t steps at p bits is costed at t·2^8 F_{p²}
-multiplications of 3·p_bits^{1.585} gates each (Karatsuba; below any known
-theta-coordinate implementation), and a 3-isogeny step at 2^6 F_{p²}
-multiplications. These are generous to the attacker.
+Oracle costs: a (2,2)-chain of t steps at p bits is costed at t·2^7.5 F_{p²}
+multiplications of 3·p_bits^{1.585} gates each (Karatsuba), and a
+3-isogeny step at 2^6 F_{p²} multiplications. The 2^7.5 is the measured
+theta step rounded down: 566.6 F_p products per step in the public-key
+degree test (`examples/chain_opcount.rs`, feature `opcount`), i.e. 188.9
+F_{p²} multiplications, 2^7.56. Until 2026-10-18 the model charged 2^8 on
+the mistaken belief that a theta step needs more than 256; that
+overcharged the attacker, and correcting it lowered every quantum-gate
+column by 0.5–1.0 bit (classical and query floors are unchanged).
 
 ### 5.2 Results (`security_estimate`)
 
@@ -278,10 +283,10 @@ Two different bars must not be conflated:
 | **A — NIST gates** | Gate floor ≥ AES-λ Grover reference at every MAXDEPTH | L1 / L3 / L5 as Cat 1 / 3 / 5 | “L1 has 2^128 quantum queries” |
 | **B — quantum queries** | Query floor ≥ λ against every known attack | L5 (=Q1), Q3, Q5 | Calling L1/L3 “quantum-hardened” |
 
-Oracle costing in §5.1 remains deliberately cheap for the attacker (2^8
-F_{p²} muls per (2,2)-step). The defender now uses a theta chain; that does
-**not** raise the attacker's oracle cost in this document — keep the margin
-until §8.1 Q3 is answered by reviewers. Tracking: `docs/ROADMAP.md`.
+Oracle costing in §5.1 charges the measured theta step, rounded down
+(2^7.5 F_{p²} muls per (2,2)-step, §5.1), with Karatsuba gates; it is a
+measured count, not a margin. Whether a quantum implementation can do
+better per step is §8.1 Q3. Tracking: `docs/ROADMAP.md`.
 
 ## 6. Assumptions
 
@@ -358,9 +363,9 @@ Not established:
    φ(⟨P⟩), φ(⟨Q⟩) ⊂ E_C are mask-independent. Can a dimension-4 or -8 Kani
    embedding be built from the subgroups alone, or from the subgroups plus
    the pairing value a·b·d mod 2^E, without guessing the masks?
-3. **Oracle costing (C7).** The Grover oracle is costed at 2^8 F_{p²}
-   multiplications per (2,2)-step with Karatsuba field multiplication and
-   depth = gates/16. Is this defensible as a lower bound given
+3. **Oracle costing (C7).** The Grover oracle is costed at 2^7.5 F_{p²}
+   multiplications per (2,2)-step (the measured classical theta step,
+   rounded down) with Karatsuba field multiplication and depth = gates/16. Is this defensible as a lower bound given
    theta-coordinate implementations, and does the NIST parallel-Grover
    accounting apply as used in `security::grover_gates_log2`?
 4. **Degree-search pruning (C5).** Only f′ with 2^E − 7d²f′² a sum of two

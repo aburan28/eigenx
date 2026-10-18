@@ -24,6 +24,11 @@ smallvec = "1.13"
 # own crate; eigen_seta itself keeps #![forbid(unsafe_code)].
 eigen-fp-ifma = { path = "fp-ifma" }
 
+[features]
+# Count F_p multiplications and additions (examples/chain_opcount.rs).
+# Off by default: the counters are relaxed atomics on the hot path.
+opcount = []
+
 [workspace]
 members = ["fp-ifma"]
 
@@ -43,3 +48,7 @@ lto = "thin"
 
 [profile.test]
 opt-level = 3
+
+[[example]]
+name = "chain_opcount"
+required-features = ["opcount"]
